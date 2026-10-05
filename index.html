@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :root{--g1:#F2F2F7;--g2:#E5E5EA;--tx:#000;--t2:#6C6C70;--t3:#AEAEB2;--ac:#007AFF;--rd:#FF3B30;--sep:rgba(60,60,67,.14);--sb:env(safe-area-inset-bottom,0px);--st:env(safe-area-inset-top,0px)}
@@ -96,7 +97,7 @@ textarea.in{min-height:90px;resize:vertical}
 .pt p{color:var(--t2);font-size:.88rem;display:flex;gap:8px;align-items:center;margin-top:5px}.pt .i{width:15px;height:15px}
 .pc{border-top:2px dashed var(--g2);padding:16px;text-align:center}
 .code{font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:1.3rem;letter-spacing:.08em;color:var(--ac);margin:4px 0}
-.qr{margin:12px auto;text-align:center}
+.qr{margin:12px auto;display:inline-block;background:#fff;padding:14px;border-radius:14px;line-height:0}
 .qr svg{max-width:100%;height:auto}
 .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
 .kpi{background:var(--g1);border-radius:16px;padding:14px}.kpi small{color:var(--t2);font-size:.75rem;font-weight:600}.kpi b{display:block;font-size:1.3rem;margin-top:4px}
@@ -136,8 +137,11 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .sk-line{height:12px;background:var(--g1);border-radius:6px}
 .sk-line.short{width:60%}
 .chart-container{position:relative;height:300px;margin:20px 0}
-.chk-tile{display:flex;align-items:center;gap:12px;padding:12px;background:var(--g1);border-radius:12px;margin-bottom:8px}
+.chk-tile{display:flex;align-items:center;gap:12px;padding:12px;background:var(--g1);border-radius:12px;margin-bottom:8px;cursor:pointer}
+.chk-tile .rt{margin-left:auto;font-weight:700}
+.chk-tile small{color:var(--t2)}
 .chk-tick{width:36px;height:36px;border-radius:50%;background:var(--ac);color:#fff;display:grid;place-items:center;font-weight:700;flex-shrink:0}
+.chk-tick.off{background:var(--g2);color:var(--t2)}.chk-tick.part{background:#FF9500}
 .res{border-radius:16px;padding:16px;margin-top:14px;text-align:center;background:var(--g1)}
 .res b{display:block;font-size:1.15rem}
 .res span{display:block;margin-top:4px;font-size:.92rem;line-height:1.45}
@@ -151,9 +155,6 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .cnt span{color:var(--t2);font-weight:600;font-size:.9rem}
 .pbar{height:8px;border-radius:99px;background:var(--g1);overflow:hidden;margin-bottom:14px}
 .pbar i{display:block;height:100%;background:#34C759;transition:width .4s}
-.chk-tile{cursor:pointer}.chk-tile .rt{margin-left:auto;font-weight:700}
-.chk-tile small{color:var(--t2)}
-.chk-tick.off{background:var(--g2);color:var(--t2)}.chk-tick.part{background:#FF9500}
 .scn{position:fixed;inset:0;z-index:250;background:#000}
 .scn video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .scn .frame{position:absolute;top:36%;left:50%;width:min(64vw,260px);aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.9);border-radius:24px;box-shadow:0 0 0 100vmax rgba(0,0,0,.4)}
@@ -162,12 +163,13 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .scn .scr{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:16px 20px calc(18px + var(--sb));transform:translateY(105%);transition:transform .3s;max-height:70vh;overflow-y:auto}
 .scn .scr.on{transform:none}
 .scn .scr .res{margin-top:0}
-.scn .scr #sn{margin-top:10px}</style>
+.scn .scr #sn{margin-top:10px}
+</style>
 </head>
 <body>
 <div class="app">
   <section class="pg on" id="p-home">
-    <h1 class="lt">Explore Events & Get That Ticket</h1>
+    <h1 class="lt">Explore Events &amp; Get That Ticket</h1>
     <div class="sbar">
       <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input id="q" type="search" placeholder="Search events, venues or cities"></div>
       <button class="fbtn" id="fb" aria-label="Filters"><svg class="i" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg><span class="fbadge" id="fbadge"></span></button>
@@ -278,13 +280,6 @@ function localSb() {
         if (!t) return { error: { message: "Ticket type not found" } };
         if (t.qty - t.sold < a.p_qty) return { error: { message: "Not enough tickets left" } };
         t.sold += a.p_qty; wr("events", ev); return { data: null, error: null };
-      } else if (fn === "verify_ticket") {
-        const tk = rd("tickets", []).find(x => x.code === a.p_code);
-        if (!tk) return { error: { message: "Ticket not found" } };
-        if (tk.used) return { data: { valid: false, msg: "Already checked in" }, error: null };
-        tk.used = true; tk.used_at = now();
-        wr("tickets", rd("tickets", []).map(x => x.id === tk.id ? tk : x));
-        return { data: { valid: true, name: tk.buyer_name, event: tk.event_title, msg: "Valid" }, error: null };
       }
       return { data: null, error: null };
     },
@@ -420,10 +415,6 @@ async function loadAll() {
 const minP = e => { const p = (e.tiers || []).map(t => +t.price); return p.length ? Math.min(...p) : 0 };
 const left = e => (e.tiers || []).reduce((s, t) => s + (t.qty - t.sold), 0);
 const tdy = () => new Date().toISOString().slice(0, 10);
-const weekend = () => {
-  const d = new Date(), day = d.getDay(), diff = day === 0 ? -2 : day === 6 ? -1 : 6 - day;
-  return d.toISOString().slice(0, 10);
-};
 
 /* ---------- NAVIGATION ---------- */
 let tab = "home";
@@ -467,7 +458,6 @@ function openFilters() {
 $("#fb").onclick = openFilters;
 $("#q").oninput = e => { q = e.target.value; rHome() };
 
-const skRow = () => `<div class="sk-row sk"><div class="sk-th"></div><div class="sk-rb"><div class="sk-line"></div><div class="sk-line short"></div><div class="sk-line" style="width:80%"></div></div></div>`;
 const fc = e => `<div class="fcard" onclick="openEv('${e.id}')">${e.img ? `<img src="${e.img}" alt="">` : ""}<div class="fo"><small>Featured</small><b>${esc(e.title)}</b><span>${fdate(e.date)} · ${esc(e.city)}</span></div></div>`;
 const row = e => { const p = minP(e); return `<div class="row" onclick="openEv('${e.id}')" style="position:relative"><div class="th">${e.img ? `<img src="${e.img}" loading="lazy" alt="">` : I("ticket")}</div><div class="rb"><small>${esc(e.category)}</small><b>${esc(e.title)}</b><span>${fdate(e.date)} · ${ftime(e.time)}</span><span>${esc(e.venue)}, ${esc(e.city)}</span><em>${ended(e) ? "Ended" : left(e) <= 0 ? "Sold out" : p ? "From " + money(p) : "Free"}</em></div><button class="btn icon heart ${isSaved(e.id) ? "saved" : ""}" data-save="${e.id}" onclick="event.stopPropagation();toggleSave('${e.id}')">${I("heart")}</button></div>` };
 
@@ -504,7 +494,7 @@ function rHome() {
     }
     return true;
   }).sort((a, b) => ended(a) - ended(b) || a.date.localeCompare(b.date));
-  
+
   const fe = ALL.filter(e => e.featured && !ended(e));
   $("#feat").innerHTML = !filt && fe.length ? `<h2 class="h2">Featured</h2><div class="car">${fe.map(fc).join("")}</div>` : "";
   $("#hl").textContent = filt ? `${l.length} result${l.length === 1 ? "" : "s"}` : "Upcoming";
@@ -586,16 +576,16 @@ function buy(id) {
 function showTicket(t, fresh) {
   const m = sheet(sh(fresh ? "Booking confirmed" : "Your ticket") + `<div class="pass"><div class="pt"><span class="cat">${esc(t.tier)} · ${t.qty} ticket${t.qty > 1 ? "s" : ""}</span><h3>${esc(t.event_title)}</h3>
     <p>${I("cal")}${fdate(t.date)}</p><p>${I("clock")}${ftime(t.time)}</p><p>${I("pin")}${esc(t.venue)}, ${esc(t.city)}</p><p>${I("user")}${esc(t.buyer_name)}</p></div>
-    <div class="pc"><small style="color:var(--t2)">Ticket code</small><div class="code">${esc(t.code)}</div><div class="qr" id="qr"></div><small style="color:var(--t2)">${t.total === 0 ? "Free" : "Paid " + money(t.total) + (t.method ? " via " + esc(t.method) : "")}</small></div>
+    <div class="pc"><small style="color:var(--t2)">Ticket code</small><div class="code">${esc(t.code)}</div><div class="qr" id="qr"></div><br><small style="color:var(--t2)">${t.total === 0 ? "Free" : "Paid " + money(t.total) + (t.method ? " via " + esc(t.method) : "")}</small></div>
     <div style="display:flex;gap:8px"><button class="btn s b" id="gift" style="flex:1">${I("share")}Gift ticket</button></div></div>
     ${fresh ? `<button class="btn b" id="vt">View my tickets</button>` : `<button class="btn s b" data-x>Close</button>`}`);
-  
+
   const qrDiv = m.querySelector("#qr");
-  new QRCode(qrDiv, { text: t.code, width: 200, height: 200, colorDark: "#007AFF", colorLight: "#ffffff" });
-  
+  new QRCode(qrDiv, { text: t.code, width: 200, height: 200, colorDark: "#000000", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.M });
+
   const giftBtn = m.querySelector("#gift");
   giftBtn.onclick = () => giftTicket(t, m);
-  
+
   const b = m.querySelector("#vt"); if (b) b.onclick = () => { m.close(); closeEv(); go("tix") };
 }
 
@@ -735,46 +725,49 @@ async function openScan() {
   if (!chEv) return toast("Select an event first");
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return toast("Camera needs HTTPS or localhost. Type the code instead.");
   const o = document.createElement("div"); o.className = "scn";
-  o.innerHTML = `<video playsinline muted></video><canvas hidden></canvas><div class="frame"></div><div class="scs">Point the camera at the ticket QR code</div><button class="xb scx" aria-label="Close">${I("x")}</button><div class="scr"><div id="sres"></div><button class="btn s b" id="sn">Scan next</button></div>`;
+  o.innerHTML = `<video playsinline muted autoplay></video><canvas hidden></canvas><div class="frame"></div><div class="scs">Point the camera at the ticket QR code</div><button class="xb scx" aria-label="Close">${I("x")}</button><div class="scr"><div id="sres"></div><button class="btn s b" id="sn">Scan next</button></div>`;
   document.body.appendChild(o);
   const v = o.querySelector("video"), cv = o.querySelector("canvas"), cx = cv.getContext("2d", { willReadFrequently: true }), panel = o.querySelector(".scr"), out = o.querySelector("#sres");
-  let stream, det, run = true, paused = false, last = "", lastT = 0;
+  let stream = null, det = null, run = true, paused = false, last = "", lastT = 0;
   const close = () => { run = false; stream && stream.getTracks().forEach(t => t.stop()); o.remove(); refreshRoster() };
   o.querySelector(".scx").onclick = close;
   const resume = () => { panel.classList.remove("on"); paused = false; lastT = Date.now() };
   o.querySelector("#sn").onclick = resume;
-  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false }); v.srcObject = stream; await v.play() }
-  catch { close(); return toast("Camera blocked. Allow camera access, or type the code.") }
-  if ("BarcodeDetector" in window) { try { det = new BarcodeDetector({ formats: ["qr_code"] }) } catch { } }
+
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }) }
+  catch (err) { close(); return toast(err && err.name === "NotAllowedError" ? "Camera permission denied. Allow it in your browser settings." : "Could not open the camera. Type the code instead.") }
+  if (!run) { stream.getTracks().forEach(t => t.stop()); return }       // closed while the permission prompt was open
+  v.srcObject = stream; try { await v.play() } catch { }
+  try { const tr = stream.getVideoTracks()[0], caps = tr.getCapabilities ? tr.getCapabilities() : {}; if (caps.focusMode && caps.focusMode.includes("continuous")) await tr.applyConstraints({ advanced: [{ focusMode: "continuous" }] }) } catch { }
+
+  // use the built-in detector only if it really supports QR codes, otherwise jsQR
+  try { if ("BarcodeDetector" in window && (await BarcodeDetector.getSupportedFormats()).includes("qr_code")) det = new BarcodeDetector({ formats: ["qr_code"] }) } catch { }
   if (!det) { try { await loadJsQR() } catch { close(); return toast("Could not load the QR reader. Type the code instead.") } }
+
+  const read = async () => {
+    if (det) { try { const b = await det.detect(v); return b[0]?.rawValue || "" } catch { det = null; try { await loadJsQR() } catch { } } }
+    if (!window.jsQR || !v.videoWidth) return "";
+    const k = Math.min(1, 800 / v.videoWidth); cv.width = Math.round(v.videoWidth * k); cv.height = Math.round(v.videoHeight * k);
+    cx.drawImage(v, 0, 0, cv.width, cv.height);
+    const d = cx.getImageData(0, 0, cv.width, cv.height), q = jsQR(d.data, d.width, d.height, { inversionAttempts: "attemptBoth" });
+    return q ? q.data : "";
+  };
   const handle = async code => {
     paused = true; last = code; navigator.vibrate && navigator.vibrate(30);
     out.innerHTML = `<div class="res"><span class="spin" style="display:inline-block"></span></div>`; panel.classList.add("on");
     const r = await checkCode(code, chEv);
-    showRes(out, r, code, () => setTimeout(() => { if (run && paused) resume() }, 1800));  // auto-continue after a successful admit
+    showRes(out, r, code, () => setTimeout(() => { if (run && paused) resume() }, 1800));   // auto-continue after a successful admit
   };
   const tick = async () => {
     if (!run) return;
     if (!paused && v.readyState >= 2) {
-      let val = "";
-      try {
-        if (det) { const b = await det.detect(v); val = b[0]?.rawValue || "" }
-        else { const k = Math.min(1, 640 / v.videoWidth); cv.width = v.videoWidth * k; cv.height = v.videoHeight * k; cx.drawImage(v, 0, 0, cv.width, cv.height); const d = cx.getImageData(0, 0, cv.width, cv.height), q = jsQR(d.data, d.width, d.height, { inversionAttempts: "dontInvert" }); val = q ? q.data : "" }
-      } catch { }
-      val = val.trim().toUpperCase();
+      let val = ""; try { val = (await read()).trim().toUpperCase() } catch { }
+      const m = val.match(/TZ-[A-Z0-9]{8}/); if (m) val = m[0];                          // tolerate extra text around the code
       if (val && !(val === last && Date.now() - lastT < 3000)) handle(val);
     }
-    setTimeout(tick, 150);
+    setTimeout(tick, 120);
   };
   tick();
-}
-function updateCheckList(eventId) {
-  if (!eventId) { $("#chlist").innerHTML = ""; return; }
-  const { data: tix } = sb.from("tickets").select("*").eq("event_id", eventId).then(r => r);
-  tix.then(tickets => {
-    const checked = (tickets || []).filter(t => t.used).length;
-    $("#chlist").innerHTML = `<h2 class="h2">Checked in (${checked})</h2>${(tickets || []).filter(t => t.used).map(t => `<div class="chk-tile"><div class="chk-tick">✓</div><div><b>${esc(t.buyer_name)}</b><br><small>${esc(t.code)}</small></div></div>`).join("")}`;
-  });
 }
 
 /* ---------- ORGANISER ---------- */
@@ -782,19 +775,19 @@ function rOrg() {
   const sold = MINE.reduce((s, e) => s + (e.tiers || []).reduce((a, t) => a + t.sold, 0), 0);
   const gross = MINE.reduce((s, e) => s + (e.tiers || []).reduce((a, t) => a + t.sold * t.price, 0), 0);
   const yourShare = Math.round(gross * (1 - fee / 100));
-  
+
   $("#ol").innerHTML = `<div class="kpis"><div class="kpi"><small>Events</small><b>${MINE.length}</b></div><div class="kpi"><small>Tickets sold</small><b>${sold}</b></div><div class="kpi"><small>Gross sales</small><b>${money(gross)}</b></div><div class="kpi"><small>Your ${100 - fee}% share</small><b>${money(yourShare)}</b></div></div>
   <h2 class="h2">Sales breakdown</h2>
   <div class="grp"><div class="gi"><span>Gross revenue</span><span class="sp">${money(gross)}</span></div><div class="gi"><span>Platform fee (${fee}%)</span><span class="sp" style="color:var(--t2)">-${money(Math.round(gross * fee / 100))}</span></div><div class="gi"><span><b>Your payout</b></span><span class="sp" style="color:var(--ac);font-weight:700">${money(yourShare)}</span></div></div>
   <button class="btn b" style="margin:12px 0 4px" onclick="openEditor()">${I("plus")}New event</button>
-  ${MINE.length ? MINE.map(e => { const s = (e.tiers || []).reduce((a, t) => a + t.sold, 0), n = (e.tiers || []).reduce((a, t) => a + t.qty, 0), rev = (e.tiers || []).reduce((a, t) => a + t.sold * t.price, 0); return `<div class="row" style="flex-direction:column;gap:0;cursor:default"><div style="display:flex;gap:14px" onclick="closeEv();openEv('${e.id}')" style="cursor:pointer"><div class="th" style="width:64px;height:64px">${e.img ? `<img src="${e.img}" alt="">` : I("ticket")}</div><div class="rb"><b>${esc(e.title)}</b><span>${fdate(e.date)}${ended(e) ? " · Ended" : ""}</span><span>${s} / ${n} sold · ${money(rev)}</span></div></div>
+  ${MINE.length ? MINE.map(e => { const s = (e.tiers || []).reduce((a, t) => a + t.sold, 0), n = (e.tiers || []).reduce((a, t) => a + t.qty, 0), rev = (e.tiers || []).reduce((a, t) => a + t.sold * t.price, 0); return `<div class="row" style="flex-direction:column;gap:0;cursor:default"><div style="display:flex;gap:14px;cursor:pointer" onclick="closeEv();openEv('${e.id}')"><div class="th" style="width:64px;height:64px">${e.img ? `<img src="${e.img}" alt="">` : I("ticket")}</div><div class="rb"><b>${esc(e.title)}</b><span>${fdate(e.date)}${ended(e) ? " · Ended" : ""}</span><span>${s} / ${n} sold · ${money(rev)}</span></div></div>
     <div class="acts"><button class="btn s sm" onclick="sales('${e.id}')">${I("users")}Attendees</button><button class="btn s sm" onclick="openEditor('${e.id}')">${I("edit")}Edit</button><button class="btn d sm" onclick="del('${e.id}')">${I("trash")}</button></div></div>` }).join("") : `<div class="emp">${I("grid")}<p>No events yet. Create your first one.</p></div>`}`;
 }
 async function sales(id) {
   const e = MINE.find(x => x.id === id);
   const { data: l } = await sb.from("tickets").select("*").eq("event_id", id).order("created_at", { ascending: false });
   sheet(sh("Attendees", esc(e.title)) + `<div class="grp">${(e.tiers || []).map(t => `<div class="gi"><span>${esc(t.name)}</span><span class="sp">${t.sold} / ${t.qty}</span></div>`).join("")}</div><h2 class="h2">Bookings</h2>
-  ${(l || []).length ? `<div class="grp">${l.map(t => `<div class="gi"><span>${esc(t.buyer_name)}<small>${esc(t.buyer_email)} · ${esc(t.buyer_phone)}</small></span><span class="sp">${t.qty} × ${esc(t.tier)}<small>${esc(t.code)}${t.used ? " ✓" : ""}</small></span></div>`).join("")}</div>` : `<p class="hint">No bookings yet.</p>`}`);
+  ${(l || []).length ? `<div class="grp">${l.map(t => `<div class="gi"><span>${esc(t.buyer_name)}<small>${esc(t.buyer_email)} · ${esc(t.buyer_phone)}</small></span><span class="sp">${t.qty} × ${esc(t.tier)}<small>${esc(t.code)}${t.used ? " ✓" : adm(t) > 0 ? " · " + adm(t) + "/" + t.qty + " in" : ""}</small></span></div>`).join("")}</div>` : `<p class="hint">No bookings yet.</p>`}`);
 }
 async function del(id) {
   const e = MINE.find(x => x.id === id);
