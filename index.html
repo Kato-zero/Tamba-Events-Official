@@ -9,7 +9,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :root{--g1:#F2F2F7;--g2:#E5E5EA;--tx:#000;--t2:#6C6C70;--t3:#AEAEB2;--ac:#007AFF;--rd:#FF3B30;--sep:rgba(60,60,67,.14);--sb:env(safe-area-inset-bottom,0px);--st:env(safe-area-inset-top,0px)}
@@ -98,7 +97,7 @@ textarea.in{min-height:90px;resize:vertical}
 .pc{border-top:2px dashed var(--g2);padding:16px;text-align:center}
 .code{font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:1.3rem;letter-spacing:.08em;color:var(--ac);margin:4px 0}
 .qr{margin:12px auto;display:inline-block;background:#fff;padding:14px;border-radius:14px;line-height:0}
-.qr svg{max-width:100%;height:auto}
+.qr svg,.qr canvas,.qr img{max-width:100%;height:auto;image-rendering:pixelated}
 .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
 .kpi{background:var(--g1);border-radius:16px;padding:14px}.kpi small{color:var(--t2);font-size:.75rem;font-weight:600}.kpi b{display:block;font-size:1.3rem;margin-top:4px}
 .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
@@ -157,13 +156,15 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .pbar i{display:block;height:100%;background:#34C759;transition:width .4s}
 .scn{position:fixed;inset:0;z-index:250;background:#000}
 .scn video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.scn .frame{position:absolute;top:36%;left:50%;width:min(64vw,260px);aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.9);border-radius:24px;box-shadow:0 0 0 100vmax rgba(0,0,0,.4)}
+.scn .frame{position:absolute;top:36%;left:50%;width:min(72vw,300px);aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.9);border-radius:24px;box-shadow:0 0 0 100vmax rgba(0,0,0,.4)}
 .scn .scs{position:absolute;top:calc(var(--st) + 24px);left:20px;right:70px;color:#fff;font-weight:600}
 .scn .scx{position:absolute;top:calc(var(--st) + 14px);right:16px;width:40px;height:40px;background:rgba(255,255,255,.9)}
 .scn .scr{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:16px 20px calc(18px + var(--sb));transform:translateY(105%);transition:transform .3s;max-height:70vh;overflow-y:auto}
 .scn .scr.on{transform:none}
 .scn .scr .res{margin-top:0}
 .scn .scr #sn{margin-top:10px}
+.scn .scgo{position:absolute;left:0;right:0;margin:0 auto;width:fit-content;min-width:150px;top:calc(36% + min(36vw,150px) + 22px);z-index:2}
+.scn .scgo.stop{background:#fff;color:var(--rd)}
 </style>
 </head>
 <body>
@@ -421,7 +422,7 @@ let tab = "home";
 const TABS = [["home", "Explore", "search"], ["tix", "Tickets", "ticket"], ["org", "Organise", "grid"], ["chk", "Check in", "scan"], ["me", "Account", "user"]];
 const isOrg = () => !!me && (me.role === "organiser" || me.role === "admin");
 function drawTabs() { $("#tb").innerHTML = TABS.filter(t => (t[0] !== "org" && t[0] !== "chk") || isOrg()).map(t => `<button data-t="${t[0]}">${I(t[2])}${t[1]}</button>`).join("") }
-$("#tb").onclick = e => { const b = e.target.closest("button"); if (b) { closeEv(); go(b.dataset.t) } };
+$("#tb").onclick = e => { const b = e.target.closest("button"); if (b) { closeEv(); stopScanner(); go(b.dataset.t) } };
 function go(t) {
   if (t === "org" && me && !isOrg()) { toast("Organiser accounts only"); t = "home" }
   if ((t === "tix" || t === "org" || t === "chk") && !me) return openAuth(() => go(t));
@@ -581,7 +582,7 @@ function showTicket(t, fresh) {
     ${fresh ? `<button class="btn b" id="vt">View my tickets</button>` : `<button class="btn s b" data-x>Close</button>`}`);
 
   const qrDiv = m.querySelector("#qr");
-  new QRCode(qrDiv, { text: t.code, width: 200, height: 200, colorDark: "#000000", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.M });
+  new QRCode(qrDiv, { text: t.code, width: 280, height: 280, colorDark: "#000000", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.H });
 
   const giftBtn = m.querySelector("#gift");
   giftBtn.onclick = () => giftTicket(t, m);
@@ -717,57 +718,148 @@ function drawRoster() {
   <p class="hint c">Tap a person to check them in by hand.</p>`;
 }
 
-/* ---- camera scanner ---- */
-let jsqrP = null;
-const loadJsQR = () => window.jsQR ? Promise.resolve() : jsqrP || (jsqrP = new Promise((ok, no) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"; s.onload = ok; s.onerror = () => { jsqrP = null; no() }; document.head.appendChild(s) }));
+/* ---- camera scanner ----
+   jsQR is loaded lazily from two CDNs (jsDelivr first, cdnjs second). If both
+   fail, the overlay stays open with an actionable message instead of silently
+   closing — that was the "opens then immediately closes" bug. */
+let jsqrP = null, scannerActive = null;
+const loadJsQR = () => {
+  if (window.jsQR) return Promise.resolve();
+  if (jsqrP) return jsqrP;
+  jsqrP = new Promise((ok, no) => {
+    const sources = [
+      "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"
+    ];
+    let i = 0;
+    const tryNext = () => {
+      if (i >= sources.length) { jsqrP = null; return no(new Error("All jsQR CDNs failed")); }
+      const s = document.createElement("script");
+      s.src = sources[i++];
+      s.onload = () => window.jsQR ? ok() : tryNext();
+      s.onerror = tryNext;
+      document.head.appendChild(s);
+    };
+    tryNext();
+  });
+  return jsqrP;
+};
+const stopScanner = () => { if (scannerActive) { try { scannerActive() } catch { } scannerActive = null } };
 
 async function openScan() {
   if (!chEv) return toast("Select an event first");
+  if (scannerActive) return;   /* already open, don't stack a second scanner */
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return toast("Camera needs HTTPS or localhost. Type the code instead.");
+  const IDLE = "Tap Start to turn on the camera", LIVE = "Point the camera at the ticket QR code";
   const o = document.createElement("div"); o.className = "scn";
-  o.innerHTML = `<video playsinline muted autoplay></video><canvas hidden></canvas><div class="frame"></div><div class="scs">Point the camera at the ticket QR code</div><button class="xb scx" aria-label="Close">${I("x")}</button><div class="scr"><div id="sres"></div><button class="btn s b" id="sn">Scan next</button></div>`;
+  o.innerHTML = `<video playsinline muted autoplay></video><canvas hidden></canvas><div class="frame"></div><div class="scs">${IDLE}</div><button class="btn scgo" id="sgo">Start</button><button class="xb scx" aria-label="Close">${I("x")}</button><div class="scr"><div id="sres"></div><button class="btn s b" id="sn">Scan next</button></div>`;
   document.body.appendChild(o);
-  const v = o.querySelector("video"), cv = o.querySelector("canvas"), cx = cv.getContext("2d", { willReadFrequently: true }), panel = o.querySelector(".scr"), out = o.querySelector("#sres");
-  let stream = null, det = null, run = true, paused = false, last = "", lastT = 0;
-  const close = () => { run = false; stream && stream.getTracks().forEach(t => t.stop()); o.remove(); refreshRoster() };
+  const v = o.querySelector("video"), cv = o.querySelector("canvas"), cx = cv.getContext("2d", { willReadFrequently: true }), panel = o.querySelector(".scr"), out = o.querySelector("#sres"), hint = o.querySelector(".scs"), go = o.querySelector("#sgo");
+  let stream = null, det = null, ready = false, run = true, active = false, starting = false, token = 0, paused = false, last = "", lastT = 0;
+
+  const setBtn = (label, stop) => { go.textContent = label; go.classList.toggle("stop", !!stop); go.disabled = false };
+  const setHint = (msg, wide) => { hint.textContent = msg; hint.style.right = wide ? "20px" : "70px" };
+
+  /* release the camera but keep the overlay open */
+  const stop = () => {
+    active = false; starting = false; token++; paused = false;
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null }
+    v.srcObject = null;
+    panel.classList.remove("on");
+    setBtn("Start", false);
+  };
+  const close = () => {
+    if (!run) return;
+    run = false; stop();
+    o.remove(); scannerActive = null; refreshRoster();
+  };
+  scannerActive = close;
   o.querySelector(".scx").onclick = close;
   const resume = () => { panel.classList.remove("on"); paused = false; lastT = Date.now() };
   o.querySelector("#sn").onclick = resume;
 
-  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }) }
-  catch (err) { close(); return toast(err && err.name === "NotAllowedError" ? "Camera permission denied. Allow it in your browser settings." : "Could not open the camera. Type the code instead.") }
-  if (!run) { stream.getTracks().forEach(t => t.stop()); return }       // closed while the permission prompt was open
-  v.srcObject = stream; try { await v.play() } catch { }
-  try { const tr = stream.getVideoTracks()[0], caps = tr.getCapabilities ? tr.getCapabilities() : {}; if (caps.focusMode && caps.focusMode.includes("continuous")) await tr.applyConstraints({ advanced: [{ focusMode: "continuous" }] }) } catch { }
-
-  // use the built-in detector only if it really supports QR codes, otherwise jsQR
-  try { if ("BarcodeDetector" in window && (await BarcodeDetector.getSupportedFormats()).includes("qr_code")) det = new BarcodeDetector({ formats: ["qr_code"] }) } catch { }
-  if (!det) { try { await loadJsQR() } catch { close(); return toast("Could not load the QR reader. Type the code instead.") } }
-
-  const read = async () => {
-    if (det) { try { const b = await det.detect(v); return b[0]?.rawValue || "" } catch { det = null; try { await loadJsQR() } catch { } } }
+  /* decode helpers (unchanged) */
+  const grab = scale => {
+    if (!window.jsQR || !v.videoWidth) return null;
+    const w = Math.round(v.videoWidth * scale), h = Math.round(v.videoHeight * scale);
+    cv.width = w; cv.height = h; cx.drawImage(v, 0, 0, w, h);
+    return cx.getImageData(0, 0, w, h);
+  };
+  const decodeWithJsQR = () => {
     if (!window.jsQR || !v.videoWidth) return "";
-    const k = Math.min(1, 800 / v.videoWidth); cv.width = Math.round(v.videoWidth * k); cv.height = Math.round(v.videoHeight * k);
-    cx.drawImage(v, 0, 0, cv.width, cv.height);
-    const d = cx.getImageData(0, 0, cv.width, cv.height), q = jsQR(d.data, d.width, d.height, { inversionAttempts: "attemptBoth" });
-    return q ? q.data : "";
+    for (const scale of [1, 0.5, 1.5]) {
+      const img = grab(scale); if (!img) continue;
+      const q = jsQR(img.data, img.width, img.height, { inversionAttempts: "attemptBoth" });
+      if (q && q.data) return q.data;
+    }
+    return "";
+  };
+  const read = async () => {
+    if (det) {
+      try { const b = await det.detect(v); if (b && b[0] && b[0].rawValue) return b[0].rawValue }
+      catch (e) { console.warn("BarcodeDetector failed, falling back to jsQR:", e); det = null; try { await loadJsQR() } catch { } }
+      if (!window.jsQR) return "";
+    }
+    return decodeWithJsQR();
   };
   const handle = async code => {
-    paused = true; last = code; navigator.vibrate && navigator.vibrate(30);
+    paused = true; last = code; lastT = Date.now(); navigator.vibrate && navigator.vibrate(30);
     out.innerHTML = `<div class="res"><span class="spin" style="display:inline-block"></span></div>`; panel.classList.add("on");
     const r = await checkCode(code, chEv);
-    showRes(out, r, code, () => setTimeout(() => { if (run && paused) resume() }, 1800));   // auto-continue after a successful admit
+    showRes(out, r, code, () => setTimeout(() => { if (run && active && paused) resume() }, 1800));
   };
-  const tick = async () => {
-    if (!run) return;
-    if (!paused && v.readyState >= 2) {
+  const loop = async my => {
+    if (!run || !active || my !== token) return;
+    if (!paused && v.readyState >= 2 && v.videoWidth) {
       let val = ""; try { val = (await read()).trim().toUpperCase() } catch { }
-      const m = val.match(/TZ-[A-Z0-9]{8}/); if (m) val = m[0];                          // tolerate extra text around the code
+      if (my !== token) return;
+      const m = val.match(/TZ-[A-Z0-9]{8}/); if (m) val = m[0];
       if (val && !(val === last && Date.now() - lastT < 3000)) handle(val);
     }
-    setTimeout(tick, 120);
+    setTimeout(() => loop(my), 120);
   };
-  tick();
+
+  /* Start: request camera, set up the decoder, begin scanning */
+  const start = async () => {
+    if (active || starting || !run) return;
+    starting = true; go.disabled = true; go.textContent = "Starting…";
+    let s;
+    try {
+      s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+    } catch (err) {
+      console.error("getUserMedia failed:", err && err.name, err && err.message);
+      starting = false; setBtn("Start", false);
+      setHint(
+        err && err.name === "NotAllowedError" ? "Camera permission was denied. Allow camera access in your browser settings, then tap Start, or type the ticket code instead." :
+        err && err.name === "NotFoundError" ? "No camera was found on this device. Type the ticket code instead." :
+        err && err.name === "NotReadableError" ? "The camera is in use by another app. Close it and tap Start, or type the ticket code instead." :
+        err && err.name === "OverconstrainedError" ? "This camera doesn't support the requested mode. Type the ticket code instead." :
+        "Could not open the camera. Tap Start to retry, or type the ticket code instead.", true);
+      return;
+    }
+    if (!run) { s.getTracks().forEach(t => t.stop()); return }   /* closed while the permission prompt was open */
+    stream = s; v.srcObject = s; try { await v.play() } catch { }
+    try { const tr = s.getVideoTracks()[0], caps = tr.getCapabilities ? tr.getCapabilities() : {}; if (caps.focusMode && caps.focusMode.includes("continuous")) await tr.applyConstraints({ advanced: [{ focusMode: "continuous" }] }) } catch { }
+
+    if (!ready) {
+      try { if ("BarcodeDetector" in window && (await BarcodeDetector.getSupportedFormats()).includes("qr_code")) det = new BarcodeDetector({ formats: ["qr_code"] }) } catch { }
+      if (!det) {
+        try { await loadJsQR() }
+        catch (e) {
+          console.error("jsQR failed to load:", e);
+          stop(); setHint("QR reader unavailable. Check your connection and tap Start, or type the ticket code instead.", true);
+          return;
+        }
+      }
+      ready = true;
+    }
+    if (!run || !stream) return;   /* Stop/close pressed during setup */
+    starting = false; active = true; paused = false; last = ""; lastT = 0;
+    setHint(LIVE, false); setBtn("Stop", true);
+    loop(++token);
+  };
+
+  go.onclick = () => { if (active || starting) { stop(); setHint(IDLE, false) } else start() };
 }
 
 /* ---------- ORGANISER ---------- */
