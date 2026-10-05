@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>TicketZed</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--g1:#F2F2F7;--g2:#E5E5EA;--tx:#000;--t2:#6C6C70;--t3:#AEAEB2;--ac:#007AFF;--rd:#FF3B30;--sep:rgba(60,60,67,.14);--sb:env(safe-area-inset-bottom,0px);--st:env(safe-area-inset-top,0px)}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,"Segoe UI",Roboto,sans-serif;background:#fff;color:var(--tx);line-height:1.35;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+button,input,select,textarea{font:inherit;color:inherit;border:0;outline:0;background:none}
+button{cursor:pointer}
+.i{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.app{max-width:520px;margin:0 auto;min-height:100vh;padding-bottom:calc(90px + var(--sb))}
+.pg{display:none;padding:0 20px}.pg.on{display:block;animation:f .3s}
+@keyframes f{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+h1.lt{font-size:2.1rem;font-weight:800;letter-spacing:-.03em;padding:calc(var(--st) + 22px) 0 8px}
+.h2{font-size:1.25rem;font-weight:700;letter-spacing:-.02em;margin:18px 0 12px}
+.sbar{position:sticky;top:0;z-index:5;margin:0 -20px 6px;padding:6px 20px 8px;background:rgba(255,255,255,.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;align-items:center;gap:10px}
+.search{flex:1;display:flex;align-items:center;gap:8px;background:var(--g1);border-radius:12px;padding:10px 12px;color:var(--t2);min-width:0}
+.search input{flex:1;color:var(--tx);font-size:1rem;min-width:0}
+.fbtn{position:relative;width:44px;height:44px;flex-shrink:0;border-radius:12px;background:var(--g1);color:var(--ac);display:grid;place-items:center;transition:.15s}
+.fbtn:active{opacity:.7;transform:scale(.96)}
+.fbtn.on{background:var(--ac);color:#fff}
+.fbadge{position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;padding:0 5px;border-radius:99px;background:var(--rd);color:#fff;font-size:.68rem;font-weight:700;display:grid;place-items:center;border:2px solid #fff;line-height:1}
+.fbadge:empty{display:none}
+.cw{display:flex;flex-wrap:wrap;gap:8px}
+.chips{display:flex;gap:8px;overflow-x:auto;margin:0 -20px;padding:2px 20px 10px;scrollbar-width:none}
+.chips::-webkit-scrollbar,.car::-webkit-scrollbar{display:none}
+.chip{flex-shrink:0;padding:7px 14px;border-radius:99px;background:var(--g1);font-size:.85rem;font-weight:600;color:var(--tx)}
+.chip.on{background:var(--ac);color:#fff}
+.car{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -20px;padding:0 20px 4px;scrollbar-width:none}
+.fcard{flex:0 0 82%;height:210px;border-radius:22px;position:relative;overflow:hidden;scroll-snap-align:center;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;cursor:pointer}
+.fcard img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.fo{position:absolute;inset:auto 0 0 0;padding:44px 16px 16px;background:linear-gradient(transparent,rgba(0,0,0,.72))}
+.fo small{font-weight:700;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;opacity:.9}
+.fo b{display:block;font-size:1.2rem;margin:2px 0;letter-spacing:-.02em}.fo span{font-size:.82rem;opacity:.92}
+.row{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--sep);cursor:pointer;position:relative}
+.th{width:88px;height:88px;border-radius:14px;background:var(--g1);overflow:hidden;display:grid;place-items:center;color:var(--t3);flex-shrink:0}
+.th img{width:100%;height:100%;object-fit:cover}
+.rb{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.rb small,.cat{color:var(--ac);font-weight:700;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em}
+.rb b{font-size:1rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rb span{color:var(--t2);font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rb em{font-style:normal;font-weight:700;font-size:.85rem;margin-top:auto}
+.btn{background:var(--ac);color:#fff;border-radius:14px;padding:14px 20px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:.15s}
+.btn:active{opacity:.7;transform:scale(.98)}.btn:disabled{background:var(--g2);color:var(--t3);pointer-events:none}
+.btn.s{background:var(--g1);color:var(--ac)}.btn.d{background:rgba(255,59,48,.1);color:var(--rd)}.btn.b{width:100%}
+.btn.sm{padding:8px 14px;font-size:.85rem;border-radius:99px}
+.btn.icon{width:40px;height:40px;padding:0;border-radius:50%;display:grid;place-items:center;position:absolute;top:12px;right:14px}
+.heart{color:var(--t3);transition:.2s}.heart.saved{color:var(--rd)}
+.tb{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(520px,100%);display:flex;background:rgba(255,255,255,.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--sep);padding:8px 0 calc(8px + var(--sb));z-index:20}
+.tb button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:.68rem;font-weight:600;color:var(--t3)}
+.tb button.on{color:var(--ac)}.tb .i{width:24px;height:24px}
+#detail{position:fixed;top:0;bottom:0;left:50%;width:min(520px,100%);background:#fff;z-index:50;overflow-y:auto;transform:translate(calc(-50% + 110vw),0);transition:transform .38s cubic-bezier(.32,.72,0,1)}
+#detail.on{transform:translate(-50%,0)}
+.dimg{height:300px;background:var(--g1);position:relative;display:grid;place-items:center;color:var(--t3)}
+.dimg img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.bk{position:absolute;top:calc(var(--st) + 12px);left:14px;width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.88);backdrop-filter:blur(10px);display:grid;place-items:center;color:var(--ac);box-shadow:0 2px 8px rgba(0,0,0,.15);z-index:10}
+.dbd{padding:20px 20px 8px;margin-top:-22px;position:relative;background:#fff;border-radius:24px 24px 0 0}
+.dbd h1{font-size:1.8rem;font-weight:800;letter-spacing:-.03em;line-height:1.1;margin:6px 0 16px}
+.desc{color:var(--t2);line-height:1.6;white-space:pre-line}
+.grp{background:var(--g1);border-radius:16px;overflow:hidden}
+.gi{display:flex;gap:12px;padding:13px 16px;align-items:center;border-bottom:1px solid var(--sep);font-size:.95rem}
+.gi:last-child{border:0}.gi .i{color:var(--ac)}.gi .sp{margin-left:auto;font-weight:700}
+.gi small{display:block;color:var(--t2);font-size:.75rem}
+.bar{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 20px calc(12px + var(--sb));background:rgba(255,255,255,.94);backdrop-filter:blur(20px);border-top:1px solid var(--sep);margin-top:20px}
+.bar small{display:block;color:var(--t2);font-size:.72rem}.bar b{font-size:1.2rem}.bar .btn{flex:1;max-width:240px}
+.ov{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center;animation:o .25s}
+@keyframes o{from{opacity:0}}
+.ov.out{opacity:0;transition:.22s}.ov.out .sh{transform:translateY(100%);transition:.22s}
+.sh{width:min(520px,100%);max-height:92vh;overflow-y:auto;background:#fff;border-radius:22px 22px 0 0;padding:8px 20px calc(24px + var(--sb));animation:u .35s cubic-bezier(.32,.72,0,1)}
+@keyframes u{from{transform:translateY(100%)}}
+.grab{width:38px;height:5px;border-radius:9px;background:var(--g2);margin:0 auto 12px}
+.sht{display:flex;justify-content:space-between;align-items:center;margin:4px 0 14px}.sht h3{font-size:1.3rem;font-weight:700;letter-spacing:-.02em}
+.xb{width:30px;height:30px;border-radius:50%;background:var(--g1);display:grid;place-items:center;color:var(--t2)}.xb .i{width:16px;height:16px}
+.sub{color:var(--t2);font-size:.9rem;margin:-6px 0 16px}.hint{color:var(--t3);font-size:.78rem;margin-top:12px}.hint.c{text-align:center}
+.fld{margin-bottom:12px}.fld label{display:block;font-size:.78rem;color:var(--t2);font-weight:600;margin:0 0 6px 4px}
+.in{width:100%;background:var(--g1);border-radius:12px;padding:13px 14px;font-size:1rem;appearance:none;-webkit-appearance:none}
+textarea.in{min-height:90px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.seg{display:flex;background:var(--g1);border-radius:10px;padding:2px;margin-bottom:16px}
+.seg button{flex:1;padding:8px;border-radius:8px;font-weight:600;font-size:.88rem;color:var(--t2)}
+.seg button.on{background:#fff;color:var(--tx);box-shadow:0 1px 4px rgba(0,0,0,.14)}
+.fld .seg{margin:0}
+.qty{display:flex;align-items:center;justify-content:space-between;background:var(--g1);border-radius:12px;padding:6px}
+.qty button{width:44px;height:36px;border-radius:9px;background:#fff;display:grid;place-items:center;color:var(--ac);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.tot{display:flex;justify-content:space-between;align-items:center;padding:14px 4px;font-size:1.1rem;border-top:1px solid var(--sep);margin:6px 0 12px}
+.pass{background:var(--g1);border-radius:20px;overflow:hidden;margin-bottom:16px}
+.pt{padding:20px}.pt h3{font-size:1.4rem;letter-spacing:-.02em;margin:6px 0 12px}
+.pt p{color:var(--t2);font-size:.88rem;display:flex;gap:8px;align-items:center;margin-top:5px}.pt .i{width:15px;height:15px}
+.pc{border-top:2px dashed var(--g2);padding:16px;text-align:center}
+.code{font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:1.3rem;letter-spacing:.08em;color:var(--ac);margin:4px 0}
+.qr{margin:12px auto;text-align:center}
+.qr svg{max-width:100%;height:auto}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
+.kpi{background:var(--g1);border-radius:16px;padding:14px}.kpi small{color:var(--t2);font-size:.75rem;font-weight:600}.kpi b{display:block;font-size:1.3rem;margin-top:4px}
+.acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tier{background:var(--g1);border-radius:14px;min-height:110px;display:grid;place-items:center;position:relative;overflow:hidden;color:var(--t2);font-size:.85rem;text-align:center}
+.up{background:var(--g1);border-radius:14px;min-height:110px;display:grid;place-items:center;position:relative;overflow:hidden;color:var(--t2);font-size:.85rem;text-align:center}
+.up input{position:absolute;inset:0;opacity:0;cursor:pointer}.up img{width:100%;height:170px;object-fit:cover}
+.chk{display:flex;gap:10px;align-items:center;padding:12px 4px;font-size:.95rem}.chk input{width:22px;height:22px;accent-color:var(--ac)}
+.emp{text-align:center;color:var(--t2);padding:48px 0}.emp .i{width:40px;height:40px;color:var(--t3);margin-bottom:8px}
+.me{text-align:center;padding-top:10px}.av{width:84px;height:84px;border-radius:50%;background:var(--ac);color:#fff;display:grid;place-items:center;font-size:2rem;font-weight:700;margin:0 auto 14px}
+.toast{position:fixed;top:calc(var(--st) + 12px);left:50%;transform:translateX(-50%);background:#1c1c1e;color:#fff;padding:12px 18px;border-radius:99px;font-size:.88rem;z-index:300;animation:f .25s;max-width:92vw;text-align:center}
+.spin{width:22px;height:22px;border:3px solid var(--g2);border-top-color:var(--ac);border-radius:50%;animation:s .8s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
+.ps{margin:0 -20px}
+.pst{position:relative;display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-behavior:smooth;padding:8px calc(50% - min(29vw,150px)) 16px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.pst::-webkit-scrollbar{display:none}
+.psl{flex:0 0 min(58vw,300px);scroll-snap-align:center;text-align:center;transform:scale(.8);opacity:.4;transition:transform .55s cubic-bezier(.32,.72,0,1),opacity .55s;cursor:pointer}
+.psl.on{transform:scale(1);opacity:1}
+.psl .ph{width:100%;aspect-ratio:1;border-radius:26px;overflow:hidden;background:var(--g1);box-shadow:0 10px 28px rgba(0,0,0,.14)}
+.psl .ph img{width:100%;height:100%;object-fit:cover;display:block}
+.psl b{display:block;margin-top:14px;font-size:1.1rem;letter-spacing:-.02em}.psl small{color:var(--t2);font-size:.85rem}
+.dots{display:flex;justify-content:center;gap:6px}.dots i{width:7px;height:7px;border-radius:99px;background:var(--g2);transition:.4s;cursor:pointer}.dots i.on{width:22px;background:var(--ac)}
+.pr{display:flex;gap:10px;align-items:center;background:var(--g1);border-radius:14px;padding:10px;margin-bottom:10px}
+.pth{width:56px;height:56px;border-radius:14px;background:#fff;overflow:hidden;display:grid;place-items:center;color:var(--t3);position:relative;flex-shrink:0;cursor:pointer}
+.pth input{position:absolute;inset:0;opacity:0;cursor:pointer}.pth img{width:100%;height:100%;object-fit:cover}
+.pf{flex:1;display:grid;gap:6px;min-width:0}.pf .in{background:#fff;padding:9px 12px}
+select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236C6C70' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:38px}
+.tt{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--g1);border-radius:14px;padding:13px 14px;margin-bottom:8px;border:2px solid transparent;transition:.2s}
+.tt.on{border-color:var(--ac);background:rgba(0,122,255,.06)}.tt:disabled{opacity:.45;pointer-events:none}
+.rd{width:22px;height:22px;border-radius:50%;border:2px solid var(--t3);flex-shrink:0;transition:.2s}
+.tt.on .rd{border-color:var(--ac);background:var(--ac);box-shadow:inset 0 0 0 4px #fff}
+.tn{flex:1;font-weight:600}.tn small{display:block;color:var(--t2);font-weight:400;font-size:.78rem}.tt b{font-weight:700}
+.bkw{position:sticky;top:0;height:0;z-index:10}
+.sk{animation:sk-load 1.2s infinite}@keyframes sk-load{0%,80%,100%{opacity:.4}40%{opacity:1}}
+.sk-row{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--sep)}
+.sk-th{width:88px;height:88px;border-radius:14px;background:var(--g1);flex-shrink:0}
+.sk-rb{flex:1;display:flex;flex-direction:column;gap:8px}
+.sk-line{height:12px;background:var(--g1);border-radius:6px}
+.sk-line.short{width:60%}
+.chart-container{position:relative;height:300px;margin:20px 0}
+.chk-tile{display:flex;align-items:center;gap:12px;padding:12px;background:var(--g1);border-radius:12px;margin-bottom:8px}
+.chk-tick{width:36px;height:36px;border-radius:50%;background:var(--ac);color:#fff;display:grid;place-items:center;font-weight:700;flex-shrink:0}
+.res{border-radius:16px;padding:16px;margin-top:14px;text-align:center;background:var(--g1)}
+.res b{display:block;font-size:1.15rem}
+.res span{display:block;margin-top:4px;font-size:.92rem;line-height:1.45}
+.res.g{background:rgba(52,199,89,.14);color:#1a7f37}
+.res.a{background:rgba(255,149,0,.16);color:#a55a00}
+.res.r{background:rgba(255,59,48,.12);color:#c4281e}
+.res .qty{margin:12px 0 10px;color:var(--tx)}
+.res .qty b{display:inline;color:var(--tx)}
+.cnt{display:flex;justify-content:space-between;align-items:baseline;margin:22px 0 8px}
+.cnt b{font-size:2rem;letter-spacing:-.03em}.cnt small{margin-left:6px;color:var(--t2);font-size:.85rem}
+.cnt span{color:var(--t2);font-weight:600;font-size:.9rem}
+.pbar{height:8px;border-radius:99px;background:var(--g1);overflow:hidden;margin-bottom:14px}
+.pbar i{display:block;height:100%;background:#34C759;transition:width .4s}
+.chk-tile{cursor:pointer}.chk-tile .rt{margin-left:auto;font-weight:700}
+.chk-tile small{color:var(--t2)}
+.chk-tick.off{background:var(--g2);color:var(--t2)}.chk-tick.part{background:#FF9500}
+.scn{position:fixed;inset:0;z-index:250;background:#000}
+.scn video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.scn .frame{position:absolute;top:36%;left:50%;width:min(64vw,260px);aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.9);border-radius:24px;box-shadow:0 0 0 100vmax rgba(0,0,0,.4)}
+.scn .scs{position:absolute;top:calc(var(--st) + 24px);left:20px;right:70px;color:#fff;font-weight:600}
+.scn .scx{position:absolute;top:calc(var(--st) + 14px);right:16px;width:40px;height:40px;background:rgba(255,255,255,.9)}
+.scn .scr{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:16px 20px calc(18px + var(--sb));transform:translateY(105%);transition:transform .3s;max-height:70vh;overflow-y:auto}
+.scn .scr.on{transform:none}
+.scn .scr .res{margin-top:0}
+.scn .scr #sn{margin-top:10px}</style>
+</head>
+<body>
+<div class="app">
+  <section class="pg on" id="p-home">
+    <h1 class="lt">Explore Events & Get That Ticket</h1>
+    <div class="sbar">
+      <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input id="q" type="search" placeholder="Search events, venues or cities"></div>
+      <button class="fbtn" id="fb" aria-label="Filters"><svg class="i" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg><span class="fbadge" id="fbadge"></span></button>
+    </div>
+    <div id="feat"></div>
+    <h2 class="h2" id="hl">Upcoming</h2>
+    <div id="list"></div>
+  </section>
+  <section class="pg" id="p-tix"><h1 class="lt">Tickets</h1><div id="tl"></div></section>
+  <section class="pg" id="p-org"><h1 class="lt">Organise</h1><div id="ol"></div></section>
+  <section class="pg" id="p-chk"><h1 class="lt">Check In</h1><div id="cl"></div></section>
+  <section class="pg" id="p-me"><h1 class="lt">Account</h1><div id="ml"></div></section>
+</div>
+<div id="detail"></div>
+<nav class="tb" id="tb"></nav>
+
+<script>
+"use strict";
+const SUPABASE_URL = "https://phcjncjdgqdltiyesvfw.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBoY2puY2pkZ3FkbHRpeWVzdmZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA1OTk4MDIsImV4cCI6MjEwNjE3NTgwMn0.GUbvA_fV289ccSg4U-Kgl9EtekjYOjaJirwPX_GQG54";
+/* true = everything runs on localStorage in this browser (no Supabase needed). false = real Supabase. */
+const USE_LOCAL = true;
+const sb = USE_LOCAL ? localSb() : supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = v => "ZMW " + Number(v || 0).toLocaleString();
+const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const fdate = d => d ? new Date(d + "T00:00:00").toLocaleDateString("en-ZM", { day: "numeric", month: "short", year: "numeric" }) : "";
+const ftime = t => { if (!t) return ""; const [h, m] = t.split(":"), d = new Date(); d.setHours(+h, +m); return d.toLocaleTimeString("en-ZM", { hour: "numeric", minute: "2-digit" }) };
+const today = () => new Date().toISOString().slice(0, 10);
+const ended = e => e.date < today();
+const CATS = ["Music & Concerts", "Comedy", "Business & Networking", "Fashion", "Sports", "Party", "Church", "Other"];
+const CITIES = ["Lusaka", "Ndola", "Kitwe", "Livingstone", "Kabwe", "Chipata"];
+const P = {
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>', cal: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  pin: '<path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>', clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  ticket: '<path d="M2 9a3 3 0 010 6v2a2 2 0 002 2h16a2 2 0 002-2v-2a3 3 0 010-6V7a2 2 0 00-2-2H4a2 2 0 00-2 2z"/><path d="M13 5v14"/>',
+  user: '<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>', grid: '<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>',
+  back: '<path d="M15 18l-6-6 6-6"/>', x: '<path d="M18 6L6 18M6 6l12 12"/>', plus: '<path d="M12 5v14M5 12h14"/>', minus: '<path d="M5 12h14"/>',
+  trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>', edit: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/>',
+  users: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8"/>', img: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
+  heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>', share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51a6 6 0 0 0 6.82 0M15.41 6.49a6 6 0 0 0-6.82 0"/>',
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/>',
+  scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10"/>'
+};
+const I = (n, c = "") => `<svg class="i ${c}" viewBox="0 0 24 24">${P[n]}</svg>`;
+
+let me = null, ALL = [], MINE = [], TIX = [], SAVED = [], fee = 5, cat = "", city = "", dateF = "", priceF = "", q = "", cur = null, psT = null, chartInst = null;
+
+/* ---------- PLACEHOLDER EVENTS ---------- */
+const SHOW_SAMPLES = true;
+const dAhead = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10) };
+const art = (a, b) => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="900" height="600" fill="url(#g)"/></svg>`);
+const SAMPLES = [
+  ["Lusaka Comedy Night", "Comedy", "Lusaka", "Mulungushi Conference Centre", 5, "19:00", true, ["#FF9500", "#FF2D55"], [["Regular", 150, 200, 38], ["VIP", 350, 50, 12]], "An evening of stand-up from Zambia's funniest voices.", "Four comedians, one MC and a night of non-stop laughs. Doors open at 18:00 and the show starts at 19:00 sharp.\n\nVIP tickets include front-row seating and a complimentary drink. Food and drinks are available at the venue.", ["Chanda Mwila|Headliner", "Mutale Banda|MC", "Lungu Jere|Stand-up", "Natasha Phiri|Stand-up"]],
+  ["Copperbelt Music Festival", "Music & Concerts", "Kitwe", "Kitwe Showgrounds", 12, "14:00", true, ["#5856D6", "#007AFF"], [["General", 200, 800, 210], ["VIP", 500, 100, 44]], "A full day of live music from across the Copperbelt and beyond.", "Six hours of live performances across two stages, with food stalls, craft vendors and a kids' corner.\n\nVIP includes a shaded viewing area, a private bar and fast-track entry. Gates open at 13:00.", ["Kasonde Beats|Headliner", "Mwiza Sound|Live Band", "DJ Tembo|DJ", "Bupe and The Roots|Live Band"]],
+  ["Livingstone Sunset Party", "Party", "Livingstone", "Zambezi Riverfront", 9, "17:30", false, ["#FF2D55", "#AF52DE"], [["Entry", 120, 300, 85]], "Sundowner vibes, DJs and river views.", "Watch the sun go down over the Zambezi with music, cocktails and good company.\n\nSmart casual dress code. Entry is 18+ and a valid ID is required at the gate.", ["DJ Zuri|DJ", "Kelvin Moyo|MC", "Sunday Vibes|Live Set"]],
+  ["Zambia Business Summit", "Business & Networking", "Lusaka", "Taj Pamodzi Hotel", 18, "08:30", true, ["#0A84FF", "#30B0C7"], [["Standard", 600, 300, 96], ["Executive", 1500, 60, 17]], "Talks, panels and networking for founders, investors and professionals.", "A full-day programme of keynotes, panel discussions and workshops on growth, funding and policy.\n\nTickets include lunch, tea breaks and access to the networking lounge. Executive passes add a private investor roundtable.", ["Mulenga Kapwepwe|Keynote Speaker", "Thandiwe Zulu|Panelist", "Joseph Mumba|Moderator", "Grace Siame|Investor Panel"]],
+  ["Ndola Fashion Week", "Fashion", "Ndola", "Ndola Civic Centre", 21, "18:00", false, ["#BF5AF2", "#FF375F"], [["Standard", 250, 250, 40], ["Front Row", 600, 40, 9]], "Runway shows from emerging Zambian designers.", "Three runway shows featuring new collections from designers across the country, followed by an after-party.\n\nFront Row seats include a goodie bag and a meet-the-designers session.", ["Mwansa Designs|Designer", "Luyando Atelier|Designer", "Naledi Chisenga|Host"]],
+  ["Super League Derby", "Sports", "Lusaka", "Levy Mwanawasa Stadium", 7, "15:00", false, ["#34C759", "#248A3D"], [["Terraces", 50, 2000, 640], ["Grandstand", 150, 400, 130]], "The biggest local derby of the season.", "Two rivals, one pitch and a packed stadium. Gates open two hours before kick-off.\n\nNo glass bottles or flares inside the stadium. Bring your ticket on your phone or printed.", []],
+  ["Gospel Praise Night", "Church", "Kabwe", "Kabwe Community Hall", 14, "18:00", false, ["#FFCC00", "#FF9500"], [["Free Entry", 0, 500, 120]], "An uplifting night of worship and live gospel music.", "An evening of praise and worship with choirs and guest ministers from across the province.\n\nEntry is free but seats are limited, so please book your ticket in advance.", ["Daniel Mwape|Guest Speaker", "Mercy Tembo|Worship Leader", "Heavenly Voices|Choir"]],
+  ["Amapiano Sundowner", "Music & Concerts", "Lusaka", "Arcades Rooftop", 3, "16:00", false, ["#00C7BE", "#007AFF"], [["Early Bird", 100, 100, 100], ["Regular", 150, 250, 71]], "Amapiano sets from top local DJs as the sun goes down.", "Rooftop sets from four till late, with log drums, vocals and a cocktail bar.\n\nEarly Bird tickets have sold out. Regular tickets are limited, so book soon.", ["DJ Kabelo|DJ", "Mumba Keys|DJ", "Lulu M|Vocalist"]],
+  ["Startup Pitch Day", "Business & Networking", "Kitwe", "Kitwe Innovation Hub", 25, "10:00", false, ["#64D2FF", "#5E5CE6"], [["Attendee", 80, 150, 22]], "Ten startups pitch live to a panel of investors.", "Watch ten early-stage startups pitch live, then vote for the audience favourite.\n\nIncludes lunch and a networking session with founders and investors after the pitches.", ["Chilufya Mbewe|Host", "Investor Panel|Judges"]],
+  ["Chipata Cultural Day", "Other", "Chipata", "Chipata Cultural Grounds", 30, "10:00", false, ["#A2845E", "#FF9500"], [["Free Entry", 0, 600, 140]], "Traditional dance, food and crafts celebrating Eastern Province culture.", "A day-long celebration of music, dance, storytelling and food, open to families and visitors.\n\nCraft stalls and food vendors open from 10:00, with the main performances from 13:00.", ["Ngoni Dance Troupe|Performers", "Royal Drummers|Drummers", "Mama Ruth|Storyteller"]]
+].map((s, i) => ({ id: "demo_" + i, demo: true, owner: "demo", owner_name: "TicketZed Sample", title: s[0], category: s[1], city: s[2], venue: s[3], date: dAhead(s[4]), time: s[5], featured: s[6], img: art(...s[7]), tiers: s[8].map(t => ({ name: t[0], price: t[1], qty: t[2], sold: t[3] })), tagline: s[9], description: s[10], presenters: s[11].map(x => { const [n, r] = x.split("|"); return { name: n, role: r, img: "" } }), status: "live" }));
+
+/* ---------- LOCALSTORAGE BACKEND ---------- */
+function localSb() {
+  const K = "tz_", now = () => new Date().toISOString();
+  const rd = (t, d) => { try { return JSON.parse(localStorage.getItem(K + t)) ?? d } catch { return d } };
+  const wr = (t, v) => localStorage.setItem(K + t, JSON.stringify(v));
+  const seed = () => {
+    const v = localStorage.getItem(K + "seeded"); if (v === "2") return;
+    let ev = rd("events", []);
+    if (!v) ev = SAMPLES.map(({ demo, ...e }) => e);
+    else ev = ev.map(e => { const x = SAMPLES.find(z => z.id === e.id); return x ? { ...e, tagline: x.tagline, description: x.description, presenters: x.presenters } : e });
+    wr("events", ev); wr("seeded", 2);
+  };
+  function from(table) {
+    let op = "select", fl = [], ord = null, pl = null, one = null;
+    const b = {
+      select() { return b }, eq(c, v) { fl.push(r => r[c] === v); return b }, neq(c, v) { fl.push(r => r[c] !== v); return b },
+      order(c, o) { ord = [c, o && o.ascending === false]; return b }, single() { one = "single"; return b }, maybeSingle() { one = "maybe"; return b },
+      insert(p) { op = "insert"; pl = p; return b }, update(p) { op = "update"; pl = p; return b }, upsert(p) { op = "upsert"; pl = p; return b }, delete() { op = "delete"; return b },
+      then(res, rej) { return Promise.resolve(run()).then(res, rej) }
+    };
+    function run() {
+      if (table === "events") seed();
+      let rows = table === "settings" ? [{ id: 1, fee: 5 }] : rd(table, []);
+      const hit = r => fl.every(f => f(r));
+      if (op === "insert") { const add = [].concat(pl).map(r => ({ ...r, created_at: now() })); wr(table, [...rows, ...add]); return { data: add, error: null } }
+      if (op === "upsert") { const i = rows.findIndex(r => r.id === pl.id); if (i >= 0) rows[i] = { ...rows[i], ...pl }; else rows.push({ ...pl, created_at: now() }); wr(table, rows); return { data: [pl], error: null } }
+      if (op === "update") { wr(table, rows.map(r => hit(r) ? { ...r, ...pl } : r)); return { data: null, error: null } }
+      if (op === "delete") { wr(table, rows.filter(r => !hit(r))); return { data: null, error: null } }
+      const out = rows.filter(hit);
+      if (ord) out.sort((x, y) => (x[ord[0]] > y[ord[0]] ? 1 : -1) * (ord[1] ? -1 : 1));
+      if (one) return out.length ? { data: out[0], error: null } : { data: null, error: one === "single" ? { message: "Not found" } : null };
+      return { data: out, error: null };
+    }
+    return b;
+  }
+  return {
+    from,
+    async rpc(fn, a) {
+      if (fn === "buy_ticket") {
+        seed(); const ev = rd("events", []), e = ev.find(x => x.id === a.p_event_id), t = e && e.tiers.find(x => x.name === a.p_tier_name);
+        if (!t) return { error: { message: "Ticket type not found" } };
+        if (t.qty - t.sold < a.p_qty) return { error: { message: "Not enough tickets left" } };
+        t.sold += a.p_qty; wr("events", ev); return { data: null, error: null };
+      } else if (fn === "verify_ticket") {
+        const tk = rd("tickets", []).find(x => x.code === a.p_code);
+        if (!tk) return { error: { message: "Ticket not found" } };
+        if (tk.used) return { data: { valid: false, msg: "Already checked in" }, error: null };
+        tk.used = true; tk.used_at = now();
+        wr("tickets", rd("tickets", []).map(x => x.id === tk.id ? tk : x));
+        return { data: { valid: true, name: tk.buyer_name, event: tk.event_title, msg: "Valid" }, error: null };
+      }
+      return { data: null, error: null };
+    },
+    auth: {
+      async getSession() { return { data: { session: rd("session", null) } } },
+      async signUp({ email, password, options }) {
+        const us = rd("users", []);
+        if (us.some(u => u.email === email)) return { data: { user: null }, error: { message: "An account with this email already exists" } };
+        const u = { id: "u_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), email, password, name: options?.data?.name || "" };
+        wr("users", [...us, u]); wr("session", { user: { id: u.id, email } }); return { data: { user: { id: u.id } }, error: null };
+      },
+      async signInWithPassword({ email, password }) {
+        const u = rd("users", []).find(x => x.email === email && x.password === password);
+        if (!u) return { error: { message: "Incorrect email or password" } };
+        wr("session", { user: { id: u.id, email } }); return { error: null };
+      },
+      async signOut() { localStorage.removeItem(K + "session"); return {} },
+      onAuthStateChange() { }
+    }
+  };
+}
+
+const pimg = n => { const h = [...n].reduce((a, c) => a + c.charCodeAt(0), 0) % 360, ini = n.split(/\s+/).filter(w => /^[A-Za-z]/.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join(""); return "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${h},75%,58%)"/><stop offset="1" stop-color="hsl(${(h + 50) % 360},75%,46%)"/></linearGradient></defs><rect width="400" height="400" fill="url(#g)"/><text x="200" y="240" font-family="Helvetica,Arial,sans-serif" font-size="140" font-weight="700" fill="#fff" text-anchor="middle">${ini}</text></svg>`) };
+function shrink(f, max, cb) {
+  if (!f) return; if (!f.type.startsWith("image/")) return toast("Choose an image file");
+  const r = new FileReader();
+  r.onload = x => { const im = new Image(); im.onload = () => { const k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = im.width * k; c.height = im.height * k; c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); cb(c.toDataURL("image/jpeg", .8)) }; im.onerror = () => toast("Could not read that image"); im.src = x.target.result };
+  r.readAsDataURL(f);
+}
+
+/* ---------- UI HELPERS ---------- */
+function toast(m) { const t = document.createElement("div"); t.className = "toast"; t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 3200) }
+function sheet(html) {
+  const o = document.createElement("div"); o.className = "ov";
+  o.innerHTML = `<div class="sh"><div class="grab"></div>${html}</div>`;
+  let d = 0; o.close = () => { if (d) return; d = 1; o.classList.add("out"); setTimeout(() => o.remove(), 230) };
+  o.onclick = e => { if (e.target === o || e.target.closest("[data-x]")) o.close() };
+  document.body.appendChild(o); return o;
+}
+const sh = (t, x) => `<div class="sht"><h3>${t}</h3><button class="xb" data-x aria-label="Close">${I("x")}</button></div>${x ? `<p class="sub">${x}</p>` : ""}`;
+const ask = (t, x, ok, cls = "") => new Promise(r => {
+  let v = 0; const m = sheet(`<div class="sht"><h3>${t}</h3></div><p class="sub">${x}</p><button class="btn b ${cls}" id="y">${ok}</button><button class="btn s b" data-x style="margin-top:8px">Cancel</button>`);
+  m.querySelector("#y").onclick = () => { v = 1; m.close() };
+  const c = m.close; m.close = () => { c(); r(v) };
+});
+
+/* ---------- SAVED EVENTS ---------- */
+function loadSaved() {
+  SAVED = JSON.parse(localStorage.getItem("tz_saved") || "[]");
+}
+function saveEvent(id) {
+  if (!SAVED.includes(id)) { SAVED.push(id); localStorage.setItem("tz_saved", JSON.stringify(SAVED)); updateSaveBtn(id, true) }
+}
+function unsaveEvent(id) {
+  SAVED = SAVED.filter(x => x !== id); localStorage.setItem("tz_saved", JSON.stringify(SAVED)); updateSaveBtn(id, false);
+}
+function updateSaveBtn(id, saved) {
+  const btn = document.querySelector(`[data-save="${id}"]`);
+  if (btn) btn.classList.toggle("saved", saved);
+}
+function isSaved(id) {
+  return SAVED.includes(id);
+}
+
+/* ---------- AUTH ---------- */
+async function loadMe() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { me = null; return; }
+  const { data: p } = await sb.from("profiles").select("*").eq("id", session.user.id).single();
+  if (!p || p.suspended) { await sb.auth.signOut(); me = null; toast("Account suspended or missing profile"); return; }
+  me = { ...p, email: session.user.email };
+}
+const needAuth = cb => me ? cb() : openAuth(cb);
+
+function openAuth(after, mode = "login") {
+  let role = "customer"; const m = sheet(""), g = s => m.querySelector(s);
+  const f = (id, l, t, ph, ac) => `<div class="fld"><label>${l}</label><input class="in" id="${id}" type="${t}" placeholder="${ph}" autocomplete="${ac}"></div>`;
+  const draw = () => {
+    g(".sh").innerHTML = `<div class="grab"></div>` + sh(mode === "login" ? "Welcome back" : "Create account", mode === "login" ? "Sign in to book tickets and manage events." : "Join TicketZed in under a minute.") +
+      `<div class="seg"><button data-m="login" class="${mode === "login" ? "on" : ""}">Sign in</button><button data-m="register" class="${mode === "register" ? "on" : ""}">Create account</button></div>` +
+      (mode === "register" ? f("rn", "Full name", "text", "Your full name", "name") + f("re", "Email", "email", "you@example.com", "email") + f("rp", "Phone (WhatsApp)", "tel", "0977 123 456", "tel") + f("rw", "Password", "password", "At least 8 characters", "new-password") +
+        `<div class="fld"><label>I want to</label><div class="seg"><button data-r="customer" class="${role === "customer" ? "on" : ""}">Buy tickets</button><button data-r="organiser" class="${role === "organiser" ? "on" : ""}">Sell tickets</button></div><p class="hint">Customers book tickets. Organisers create and manage events.</p></div>`
+        : f("le", "Email", "email", "you@example.com", "email") + f("lw", "Password", "password", "Your password", "current-password")) +
+      `<button class="btn b" id="go" style="margin-top:6px">${mode === "login" ? "Sign in" : "Create account"}</button>`;
+    m.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { mode = b.dataset.m; draw() });
+    m.querySelectorAll("[data-r]").forEach(b => b.onclick = () => { role = b.dataset.r; m.querySelectorAll("[data-r]").forEach(x => x.classList.toggle("on", x === b)) });
+    m.querySelectorAll("input").forEach(i => i.onkeydown = e => { if (e.key === "Enter") g("#go").click() });
+    g("#go").onclick = submit;
+  };
+  const v = id => g("#" + id).value.trim();
+  async function submit() {
+    const btn = g("#go");
+    if (mode === "register") {
+      const n = v("rn"), e = v("re").toLowerCase(), p = v("rp"), pw = g("#rw").value;
+      if (n.length < 2) return toast("Enter your full name");
+      if (!/^\S+@\S+\.\S+$/.test(e)) return toast("Enter a valid email address");
+      if (p.replace(/\D/g, "").length < 9) return toast("Enter a valid phone number");
+      if (pw.length < 8) return toast("Password must be at least 8 characters");
+      btn.disabled = true;
+      const { data, error } = await sb.auth.signUp({ email: e, password: pw, options: { data: { name: n } } });
+      if (error) { btn.disabled = false; return toast(error.message) }
+      if (!data.user) { btn.disabled = false; return toast("Check your email to confirm, then sign in") }
+      await sb.from("profiles").upsert({ id: data.user.id, name: n, phone: p, role }, { onConflict: "id" });
+      if (role === "organiser") await sb.from("profiles").update({ role: "organiser" }).eq("id", data.user.id);
+      await loadMe(); await loadAll(); drawTabs(); m.close(); toast("Welcome, " + n.split(" ")[0] + "!");
+      if (after) after(); else go(role === "organiser" ? "org" : "home");
+    } else {
+      const e = v("le").toLowerCase(), pw = g("#lw").value;
+      if (!/^\S+@\S+\.\S+$/.test(e)) return toast("Enter a valid email address");
+      if (!pw) return toast("Enter your password");
+      btn.disabled = true;
+      const { error } = await sb.auth.signInWithPassword({ email: e, password: pw });
+      if (error) { btn.disabled = false; return toast(error.message) }
+      await loadMe(); await loadAll(); drawTabs(); m.close(); toast("Welcome back!");
+      if (after) after(); else go(tab);
+    }
+  }
+  mode = mode; draw();
+}
+
+/* ---------- DATA ---------- */
+async function loadAll() {
+  const [{ data: ev }, { data: st }] = await Promise.all([
+    sb.from("events").select("*").neq("status", "suspended").order("date"),
+    sb.from("settings").select("fee").eq("id", 1).maybeSingle()]);
+  if (ev) ALL = ev; if (st) fee = st.fee;
+  ALL = ALL.filter(e => !e.demo); if (SHOW_SAMPLES && !USE_LOCAL) ALL = [...ALL, ...SAMPLES];
+  if (me) {
+    const { data: my } = await sb.from("events").select("*").eq("owner", me.id); MINE = my || [];
+    const { data: tk } = await sb.from("tickets").select("*").eq("user_id", me.id).order("created_at", { ascending: false }); TIX = tk || [];
+  } else { MINE = []; TIX = []; }
+}
+const minP = e => { const p = (e.tiers || []).map(t => +t.price); return p.length ? Math.min(...p) : 0 };
+const left = e => (e.tiers || []).reduce((s, t) => s + (t.qty - t.sold), 0);
+const tdy = () => new Date().toISOString().slice(0, 10);
+const weekend = () => {
+  const d = new Date(), day = d.getDay(), diff = day === 0 ? -2 : day === 6 ? -1 : 6 - day;
+  return d.toISOString().slice(0, 10);
+};
+
+/* ---------- NAVIGATION ---------- */
+let tab = "home";
+const TABS = [["home", "Explore", "search"], ["tix", "Tickets", "ticket"], ["org", "Organise", "grid"], ["chk", "Check in", "scan"], ["me", "Account", "user"]];
+const isOrg = () => !!me && (me.role === "organiser" || me.role === "admin");
+function drawTabs() { $("#tb").innerHTML = TABS.filter(t => (t[0] !== "org" && t[0] !== "chk") || isOrg()).map(t => `<button data-t="${t[0]}">${I(t[2])}${t[1]}</button>`).join("") }
+$("#tb").onclick = e => { const b = e.target.closest("button"); if (b) { closeEv(); go(b.dataset.t) } };
+function go(t) {
+  if (t === "org" && me && !isOrg()) { toast("Organiser accounts only"); t = "home" }
+  if ((t === "tix" || t === "org" || t === "chk") && !me) return openAuth(() => go(t));
+  tab = t; drawTabs();
+  document.querySelectorAll(".pg").forEach(p => p.classList.toggle("on", p.id === "p-" + t));
+  document.querySelectorAll("#tb button").forEach(b => b.classList.toggle("on", b.dataset.t === t));
+  ({ home: rHome, tix: rTix, org: rOrg, chk: rChk, me: rMe })[t](); scrollTo(0, 0);
+}
+
+/* ---------- EXPLORE ---------- */
+function updateFbtn() {
+  const n = [cat, city, dateF, priceF].filter(Boolean).length;
+  $("#fb").classList.toggle("on", n > 0);
+  $("#fbadge").textContent = n || "";
+}
+function openFilters() {
+  const m = sheet(""), g = s => m.querySelector(s);
+  const grp = (t, arr, all, c, k) => `<div class="fld"><label>${t}</label><div class="cw">${[all, ...arr].map((x, i) => `<button class="chip ${(i ? x : "") === c ? "on" : ""}" data-k="${k}" data-v="${i ? esc(x) : ""}">${esc(x)}</button>`).join("")}</div></div>`;
+  const draw = () => {
+    g(".sh").innerHTML = `<div class="grab"></div>` + sh("Filters") +
+      grp("Category", CATS, "All", cat, "c") + grp("City", CITIES, "Anywhere", city, "y") +
+      grp("Date", ["Today", "This weekend", "Next week"], "Any date", dateF, "d") + grp("Price", ["Free", "ZMW 1-100", "ZMW 100+"], "Any price", priceF, "p") +
+      `<div class="two" style="margin-top:18px"><button class="btn s" id="fr">Reset</button><button class="btn" id="fd">Show results</button></div>`;
+    m.querySelectorAll(".chip").forEach(b => b.onclick = () => {
+      const k = b.dataset.k, v = b.dataset.v;
+      if (k === "c") cat = v; else if (k === "y") city = v; else if (k === "d") dateF = v; else priceF = v;
+      draw(); updateFbtn(); rHome();
+    });
+    g("#fr").onclick = () => { cat = city = dateF = priceF = ""; draw(); updateFbtn(); rHome() };
+    g("#fd").onclick = () => m.close();
+  };
+  draw();
+}
+$("#fb").onclick = openFilters;
+$("#q").oninput = e => { q = e.target.value; rHome() };
+
+const skRow = () => `<div class="sk-row sk"><div class="sk-th"></div><div class="sk-rb"><div class="sk-line"></div><div class="sk-line short"></div><div class="sk-line" style="width:80%"></div></div></div>`;
+const fc = e => `<div class="fcard" onclick="openEv('${e.id}')">${e.img ? `<img src="${e.img}" alt="">` : ""}<div class="fo"><small>Featured</small><b>${esc(e.title)}</b><span>${fdate(e.date)} · ${esc(e.city)}</span></div></div>`;
+const row = e => { const p = minP(e); return `<div class="row" onclick="openEv('${e.id}')" style="position:relative"><div class="th">${e.img ? `<img src="${e.img}" loading="lazy" alt="">` : I("ticket")}</div><div class="rb"><small>${esc(e.category)}</small><b>${esc(e.title)}</b><span>${fdate(e.date)} · ${ftime(e.time)}</span><span>${esc(e.venue)}, ${esc(e.city)}</span><em>${ended(e) ? "Ended" : left(e) <= 0 ? "Sold out" : p ? "From " + money(p) : "Free"}</em></div><button class="btn icon heart ${isSaved(e.id) ? "saved" : ""}" data-save="${e.id}" onclick="event.stopPropagation();toggleSave('${e.id}')">${I("heart")}</button></div>` };
+
+function toggleSave(id) {
+  if (isSaved(id)) unsaveEvent(id);
+  else saveEvent(id);
+  rHome();
+}
+
+function rHome() {
+  const ql = q.toLowerCase().trim(), filt = ql || cat || city || dateF || priceF;
+  let l = ALL.filter(e => {
+    if (ql && ![e.title, e.city, e.venue, e.category].some(x => (x || "").toLowerCase().includes(ql))) return false;
+    if (cat && e.category !== cat) return false;
+    if (city && e.city !== city) return false;
+    if (dateF) {
+      const ed = e.date;
+      if (dateF === "Today" && ed !== tdy()) return false;
+      if (dateF === "This weekend") {
+        const d = new Date(); const day = d.getDay();
+        let fri, sun; if (day === 0) { fri = new Date(d); fri.setDate(fri.getDate() - 2); sun = d; } else if (day === 6) { fri = new Date(d); fri.setDate(fri.getDate() - 1); sun = new Date(d); sun.setDate(sun.getDate() + 1); } else { fri = new Date(d); fri.setDate(fri.getDate() + (5 - day)); sun = new Date(fri); sun.setDate(sun.getDate() + 2); }
+        const fs = fri.toISOString().slice(0, 10), ss = sun.toISOString().slice(0, 10); if (!(ed >= fs && ed <= ss)) return false;
+      }
+      if (dateF === "Next week") {
+        const d = new Date(); const mon = new Date(d); mon.setDate(mon.getDate() + (1 + 7 - mon.getDay())); const sun = new Date(mon); sun.setDate(sun.getDate() + 6);
+        const ms = mon.toISOString().slice(0, 10), ss = sun.toISOString().slice(0, 10); if (!(ed >= ms && ed <= ss)) return false;
+      }
+    }
+    if (priceF) {
+      const p = minP(e);
+      if (priceF === "Free" && p !== 0) return false;
+      if (priceF === "ZMW 1-100" && (p <= 0 || p > 100)) return false;
+      if (priceF === "ZMW 100+" && p <= 100) return false;
+    }
+    return true;
+  }).sort((a, b) => ended(a) - ended(b) || a.date.localeCompare(b.date));
+  
+  const fe = ALL.filter(e => e.featured && !ended(e));
+  $("#feat").innerHTML = !filt && fe.length ? `<h2 class="h2">Featured</h2><div class="car">${fe.map(fc).join("")}</div>` : "";
+  $("#hl").textContent = filt ? `${l.length} result${l.length === 1 ? "" : "s"}` : "Upcoming";
+  $("#list").innerHTML = l.length ? l.map(row).join("") : `<div class="emp">${I("search")}<p>No events found</p></div>`;
+}
+
+/* ---------- EVENT DETAIL ---------- */
+function openEv(id) {
+  const e = ALL.find(x => x.id === id); if (!e) return; cur = id;
+  const dis = ended(e) || left(e) <= 0, p = minP(e), pr = e.presenters || [];
+  const whatsappShare = `https://wa.me/?text=${encodeURIComponent(`Check out: ${e.title} on ${fdate(e.date)} at ${e.venue}, ${e.city}. Get your ticket on TicketZed!`)}`;
+  $("#detail").innerHTML = `<div class="bkw"><button class="bk" onclick="closeEv()" aria-label="Back">${I("back")}</button></div><div class="dimg">${e.img ? `<img src="${e.img}" alt="">` : I("ticket", "")}</div>
+  <div class="dbd"><span class="cat">${esc(e.category)}</span><h1>${esc(e.title)}</h1>
+  <div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn icon heart ${isSaved(e.id) ? "saved" : ""}" onclick="toggleSave('${e.id}')" title="Save event">${I("heart")}</button><a href="${whatsappShare}" class="btn icon" style="background:none;color:var(--ac);text-decoration:none" title="Share on WhatsApp">${I("share")}</a></div>
+  <div class="grp"><div class="gi">${I("cal")}<span>${fdate(e.date)}</span></div><div class="gi">${I("clock")}<span>${ftime(e.time)}</span></div><div class="gi">${I("pin")}<span>${esc(e.venue)}, ${esc(e.city)}</span></div></div>
+  <h2 class="h2">Tickets</h2><div class="grp">${(e.tiers || []).map(t => `<div class="gi"><span>${esc(t.name)}<small>${t.qty - t.sold <= 0 ? "Sold out" : (t.qty - t.sold) + " left"}</small></span><span class="sp">${+t.price === 0 ? "Free" : money(t.price)}</span></div>`).join("")}</div>
+  ${e.tagline ? `<h2 class="h2">About</h2><p class="desc">${esc(e.tagline)}</p>` : ""}
+  ${pr.length ? `<h2 class="h2">Presenters</h2><div class="ps"><div class="pst">${pr.map(x => `<div class="psl"><div class="ph"><img src="${x.img || pimg(x.name)}" alt="${esc(x.name)}"></div><b>${esc(x.name)}</b>${x.role ? `<small>${esc(x.role)}</small>` : ""}</div>`).join("")}</div><div class="dots">${pr.map(() => "<i></i>").join("")}</div></div>` : ""}
+  <h2 class="h2">${e.tagline || pr.length ? "Full description" : "About"}</h2><p class="desc">${esc(e.description || "No description provided.")}</p>
+  <p class="hint">Organised by ${esc(e.owner_name || "Organiser")}</p></div>
+  <div class="bar"><div><small>From</small><b>${p ? money(p) : "Free"}</b></div><button class="btn" ${dis ? "disabled" : ""} onclick="buy('${e.id}')">${ended(e) ? "Event ended" : left(e) <= 0 ? "Sold out" : "Get tickets"}</button></div>`;
+  $("#detail").classList.add("on"); $("#detail").scrollTop = 0; initPS();
+}
+function closeEv() { $("#detail").classList.remove("on"); clearInterval(psT) }
+
+/* presenter slideshow */
+function initPS() {
+  clearInterval(psT);
+  const t = document.querySelector(".pst"); if (!t) return;
+  const sl = [...t.children], dots = [...document.querySelectorAll(".dots i")];
+  const act = () => { const c = t.scrollLeft + t.clientWidth / 2; let bi = 0, bd = 1e9; sl.forEach((x, i) => { const d = Math.abs(x.offsetLeft + x.offsetWidth / 2 - c); if (d < bd) { bd = d; bi = i } }); sl.forEach((x, i) => { x.classList.toggle("on", i === bi); dots[i].classList.toggle("on", i === bi) }); return bi };
+  const to = i => t.scrollTo({ left: sl[i].offsetLeft + sl[i].offsetWidth / 2 - t.clientWidth / 2, behavior: "smooth" });
+  const play = () => { clearInterval(psT); if (sl.length > 1) psT = setInterval(() => to((act() + 1) % sl.length), 3800) };
+  t.addEventListener("scroll", act, { passive: true });
+  sl.forEach((x, i) => x.onclick = () => to(i)); dots.forEach((d, i) => d.onclick = () => to(i));
+  ["pointerdown", "touchstart", "wheel"].forEach(ev => t.addEventListener(ev, () => clearInterval(psT), { passive: true }));
+  ["pointerup", "touchend"].forEach(ev => t.addEventListener(ev, () => { clearInterval(psT); psT = setTimeout(play, 6000) }, { passive: true }));
+  act(); play();
+}
+
+/* ---------- BUY ---------- */
+function buy(id) {
+  needAuth(() => {
+    const e = ALL.find(x => x.id === id); if (!e) return;
+    if (e.demo) return toast("Sample event: booking is disabled");
+    if (ended(e)) return toast("This event has ended");
+    let ti = Math.max(0, e.tiers.findIndex(t => t.qty - t.sold > 0)), qty = 1, pay = "MTN", nm = me.name || "", ph = me.phone || "";
+    const m = sheet(""), g = s => m.querySelector(s);
+    const draw = () => {
+      const t = e.tiers[ti], av = t.qty - t.sold, tot = t.price * qty;
+      g(".sh").innerHTML = `<div class="grab"></div>` + sh("Get tickets", esc(e.title) + " · " + fdate(e.date)) +
+        `<div class="fld"><label>Choose ticket type</label>${e.tiers.map((x, i) => `<button class="tt ${i === ti ? "on" : ""}" data-ti="${i}" ${x.qty - x.sold <= 0 ? "disabled" : ""}><span class="rd"></span><span class="tn">${esc(x.name)}<small>${x.qty - x.sold <= 0 ? "Sold out" : (x.qty - x.sold) + " left"}</small></span><b>${+x.price === 0 ? "Free" : money(x.price)}</b></button>`).join("")}</div>
+        <div class="fld"><label>Quantity · ${av} left</label><div class="qty"><button id="qm" aria-label="Less">${I("minus")}</button><b>${qty}</b><button id="qp" aria-label="More">${I("plus")}</button></div></div>
+        <div class="fld"><label>Full name</label><input class="in" id="bn" value="${esc(nm)}"></div>
+        <div class="fld"><label>WhatsApp number</label><input class="in" id="bp" type="tel" value="${esc(ph)}"></div>
+        ${tot > 0 ? `<div class="fld"><label>Pay with mobile money</label><div class="seg">${["MTN", "Airtel", "Zamtel"].map(p => `<button data-p="${p}" class="${p === pay ? "on" : ""}">${p}</button>`).join("")}</div></div>` : ""}
+        <div class="tot"><span>Total</span><b>${tot ? money(tot) : "Free"}</b></div>
+        <button class="btn b" id="pay">${tot ? "Pay " + money(tot) : "Confirm booking"}</button><p class="hint c">Demo checkout: no real payment is taken.</p>`;
+      g("#bn").oninput = x => nm = x.target.value; g("#bp").oninput = x => ph = x.target.value;
+      m.querySelectorAll("[data-ti]").forEach(b => b.onclick = () => { ti = +b.dataset.ti; qty = Math.min(qty, e.tiers[ti].qty - e.tiers[ti].sold); draw() });
+      g("#qm").onclick = () => { if (qty > 1) { qty--; draw() } };
+      g("#qp").onclick = () => { if (qty < Math.min(10, av)) { qty++; draw() } else toast(av < 10 ? "Only " + av + " left" : "Maximum 10 tickets") };
+      m.querySelectorAll("[data-p]").forEach(b => b.onclick = () => { pay = b.dataset.p; draw() });
+      g("#pay").onclick = async () => {
+        if (nm.trim().length < 2 || ph.replace(/\D/g, "").length < 9) return toast("Enter your name and a valid number");
+        const btn = g("#pay"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+        const { error: be } = await sb.rpc("buy_ticket", { p_event_id: e.id, p_tier_name: t.name, p_qty: qty });
+        if (be) { draw(); return toast(be.message) }
+        const tk = { id: uid("tk_"), code: "TZ-" + Math.random().toString(36).slice(2, 10).toUpperCase(), event_id: e.id, event_title: e.title, date: e.date, time: e.time, venue: e.venue, city: e.city, tier: t.name, price: +t.price, qty, total: tot, buyer_name: nm.trim(), buyer_email: me.email || "", buyer_phone: ph.trim(), user_id: me.id, method: tot > 0 ? pay : "", used: false, admitted: 0 };
+        const { error: te } = await sb.from("tickets").insert(tk);
+        if (te) { draw(); return toast(te.message) }
+        m.close(); await loadAll(); if ($("#detail").classList.contains("on")) openEv(e.id); showTicket(tk, true);
+      };
+    };
+    draw();
+  });
+}
+
+function showTicket(t, fresh) {
+  const m = sheet(sh(fresh ? "Booking confirmed" : "Your ticket") + `<div class="pass"><div class="pt"><span class="cat">${esc(t.tier)} · ${t.qty} ticket${t.qty > 1 ? "s" : ""}</span><h3>${esc(t.event_title)}</h3>
+    <p>${I("cal")}${fdate(t.date)}</p><p>${I("clock")}${ftime(t.time)}</p><p>${I("pin")}${esc(t.venue)}, ${esc(t.city)}</p><p>${I("user")}${esc(t.buyer_name)}</p></div>
+    <div class="pc"><small style="color:var(--t2)">Ticket code</small><div class="code">${esc(t.code)}</div><div class="qr" id="qr"></div><small style="color:var(--t2)">${t.total === 0 ? "Free" : "Paid " + money(t.total) + (t.method ? " via " + esc(t.method) : "")}</small></div>
+    <div style="display:flex;gap:8px"><button class="btn s b" id="gift" style="flex:1">${I("share")}Gift ticket</button></div></div>
+    ${fresh ? `<button class="btn b" id="vt">View my tickets</button>` : `<button class="btn s b" data-x>Close</button>`}`);
+  
+  const qrDiv = m.querySelector("#qr");
+  new QRCode(qrDiv, { text: t.code, width: 200, height: 200, colorDark: "#007AFF", colorLight: "#ffffff" });
+  
+  const giftBtn = m.querySelector("#gift");
+  giftBtn.onclick = () => giftTicket(t, m);
+  
+  const b = m.querySelector("#vt"); if (b) b.onclick = () => { m.close(); closeEv(); go("tix") };
+}
+
+function giftTicket(t, modal) {
+  const inner = sheet(sh("Gift this ticket") + `<div class="fld"><label>Recipient's WhatsApp number</label><input class="in" id="gph" type="tel" placeholder="0977 123 456"></div>
+    <div class="fld"><label>Message (optional)</label><textarea class="in" id="gmsg" placeholder="Add a personal message"></textarea></div>
+    <button class="btn b" id="gsend">Send via WhatsApp</button>`);
+  inner.querySelector("#gsend").onclick = () => {
+    const ph = inner.querySelector("#gph").value.trim(), msg = inner.querySelector("#gmsg").value.trim();
+    if (!ph || ph.replace(/\D/g, "").length < 9) return toast("Enter a valid phone number");
+    const text = `I'm gifting you a ticket!\n\n${t.event_title}\n${fdate(t.date)} at ${t.venue}\n\nCode: ${t.code}\n\n${msg ? "Message: " + msg + "\n\n" : ""}Download TicketZed to use it!`;
+    const wa = `https://wa.me/${ph.replace(/\D/g, "")}?text=${encodeURIComponent(text)}`;
+    window.open(wa, "_blank"); inner.close(); modal.close(); toast("Opening WhatsApp...");
+  };
+}
+
+/* ---------- TICKETS ---------- */
+function rTix() {
+  $("#tl").innerHTML = TIX.length ? TIX.map(t => `<div class="row" onclick="showTicket(TIX.find(x=>x.id==='${t.id}'))" style="cursor:pointer"><div class="th">${I("ticket")}</div><div class="rb"><small>${esc(t.tier)} · ${t.qty} ticket${t.qty > 1 ? "s" : ""}</small><b>${esc(t.event_title)}</b><span>${fdate(t.date)} · ${ftime(t.time)}</span><span>${esc(t.venue)}, ${esc(t.city)}</span><em style="color:var(--ac);font-family:ui-monospace,Menlo,monospace">${esc(t.code)}${t.used ? " ✓ Used" : (t.admitted || 0) > 0 ? ` · ${t.admitted}/${t.qty} in` : ""}</em></div></div>`).join("")
+    : `<div class="emp">${I("ticket")}<p>No tickets yet</p><button class="btn" style="margin-top:16px" onclick="go('home')">Browse events</button></div>`;
+}
+
+/* ---------- CHECK IN ---------- */
+/* A ticket can cover several people (qty). "admitted" counts how many have come in so far.
+   Older tickets that only have used=true are treated as fully admitted. */
+const adm = t => t.admitted ?? (t.used ? t.qty : 0);
+const fts = s => s ? new Date(s).toLocaleTimeString("en-ZM", { hour: "numeric", minute: "2-digit" }) : "";
+let chEv = "", chFilter = "out", chRows = [], chPoll = null;
+
+function rChk() {
+  if (!isOrg()) return $("#cl").innerHTML = `<div class="emp">${I("scan")}<p>Organiser accounts only</p></div>`;
+  if (!MINE.some(e => e.id === chEv)) chEv = "";
+  $("#cl").innerHTML = `<div class="fld" style="margin-top:20px"><label>Event</label><select class="in" id="che"><option value="">Select an event</option>${MINE.map(e => `<option value="${e.id}" ${e.id === chEv ? "selected" : ""}>${esc(e.title)}</option>`).join("")}</select></div>
+    <button class="btn b" id="scb">${I("scan")}Scan QR code</button>
+    <div class="fld" style="margin-top:16px"><label>Or type the ticket code (damaged QR)</label><div style="display:flex;gap:8px"><input class="in" id="chc" type="text" placeholder="TZ-XXXXXXXX" autocomplete="off" autocapitalize="characters"><button class="btn" id="chg">Check</button></div></div>
+    <div id="chres"></div><div id="chlist"></div>`;
+  $("#che").onchange = e => { chEv = e.target.value; $("#chres").innerHTML = ""; refreshRoster() };
+  $("#scb").onclick = openScan;
+  $("#chg").onclick = () => runTyped($("#chc").value);
+  $("#chc").onkeydown = e => { if (e.key === "Enter") runTyped(e.target.value) };
+  $("#chlist").onclick = e => {
+    const f = e.target.closest("[data-f]"); if (f) { chFilter = f.dataset.f; return drawRoster() }
+    const c = e.target.closest("[data-c]"); if (c) { runTyped(c.dataset.c); scrollTo({ top: 0, behavior: "smooth" }) }
+  };
+  clearInterval(chPoll);
+  chPoll = setInterval(() => { if (tab === "chk" && chEv && !document.querySelector(".scn")) refreshRoster() }, 8000);
+  refreshRoster();
+}
+
+/* look up a code and compare it with the selected event */
+async function checkCode(code, evId) {
+  const { data: t } = await sb.from("tickets").select("*").eq("code", code).maybeSingle();
+  if (!t) return { s: "nf" };
+  if (t.event_id !== evId) return { s: "wrong", t };
+  if (adm(t) >= t.qty) return { s: "used", t };
+  return { s: "ok", t };
+}
+
+/* admit n people on a ticket (re-reads the ticket first so two gates can't double-admit) */
+async function admit(id, n) {
+  const { data: f } = await sb.from("tickets").select("*").eq("id", id).single();
+  if (!f) return { err: "Ticket not found" };
+  const rem = f.qty - adm(f);
+  if (rem <= 0) return { s: "used", t: f };
+  n = Math.min(n, rem);
+  const a = adm(f) + n, u = { admitted: a, used: a >= f.qty, used_at: new Date().toISOString() };
+  const { error } = await sb.from("tickets").update(u).eq("id", id);
+  if (error) return { err: error.message };
+  return { s: "done", t: { ...f, ...u }, n };
+}
+
+const res = (c, h, body, extra = "") => `<div class="res ${c}"><b>${h}</b><span>${body}</span>${extra}</div>`;
+
+/* draw the result of a check into el. after(true) is called once someone has been admitted */
+async function showRes(el, r, code, after) {
+  const t = r.t;
+  if (r.s === "nf") return void (el.innerHTML = res("r", "Ticket not found", `No ticket matches ${esc(code)}`));
+  if (r.s === "wrong") return void (el.innerHTML = res("r", "Wrong event", `This ticket is for <b style="display:inline">${esc(t.event_title)}</b> on ${fdate(t.date)}`));
+  if (r.s === "used") {
+    const day = t.used_at && t.used_at.slice(0, 10) !== today() ? fdate(t.used_at.slice(0, 10)) + " at " : "";
+    return void (el.innerHTML = res("a", "Already checked in", `${esc(t.buyer_name)} · ${esc(t.tier)} × ${t.qty}<br>All ${t.qty} admitted. Last at ${day}${fts(t.used_at)}`));
+  }
+  const rem = t.qty - adm(t);
+  if (rem === 1) return doAdmit(el, t, 1, after);          // single person left: admit straight away
+  let n = rem;
+  const already = adm(t) ? `<br>${adm(t)} of ${t.qty} already in${t.used_at ? " (last at " + fts(t.used_at) + ")" : ""}` : "";
+  el.innerHTML = res("g", "Valid ticket", `<b style="display:inline">${esc(t.buyer_name)}</b><br>${esc(t.tier)} · ${t.qty} tickets${already}<br>How many are arriving now?`,
+    `<div class="qty"><button id="am" aria-label="Fewer">${I("minus")}</button><b id="an">${n}</b><button id="ap" aria-label="More">${I("plus")}</button></div><button class="btn b" id="ago">Admit ${n} of ${rem}</button>`);
+  const upd = () => { el.querySelector("#an").textContent = n; el.querySelector("#ago").textContent = `Admit ${n} of ${rem}` };
+  el.querySelector("#am").onclick = () => { if (n > 1) { n--; upd() } };
+  el.querySelector("#ap").onclick = () => { if (n < rem) { n++; upd() } };
+  el.querySelector("#ago").onclick = e => { e.target.disabled = true; doAdmit(el, t, n, after) };
+}
+
+async function doAdmit(el, t, n, after) {
+  const r = await admit(t.id, n);
+  if (r.err) return void (el.innerHTML = res("r", "Could not check in", esc(r.err)));
+  if (r.s === "used") return showRes(el, r, t.code, after);
+  const f = r.t, left = f.qty - adm(f);
+  el.innerHTML = res("g", "Checked in ✓", `<b style="display:inline">${esc(f.buyer_name)}</b><br>${esc(f.tier)} · admitted ${r.n}${f.qty > 1 ? " of " + f.qty : ""}<br>${left ? left + " still to arrive (scan again later)" : f.qty > 1 ? "All " + f.qty + " are in" : "Enjoy the event"}`);
+  navigator.vibrate && navigator.vibrate(60);
+  refreshRoster(); if (after) after(true);
+}
+
+async function runTyped(code) {
+  code = (code || "").trim().toUpperCase();
+  if (!chEv) return toast("Select an event first");
+  if (!code) return toast("Enter a ticket code");
+  const el = $("#chres"); el.innerHTML = `<div class="res"><span class="spin" style="display:inline-block"></span></div>`;
+  const r = await checkCode(code, chEv);
+  showRes(el, r, code, () => { $("#chc").value = "" });
+}
+
+/* ---- roster + live counter ---- */
+async function refreshRoster() {
+  if (tab !== "chk" || !$("#chlist")) return;
+  if (!chEv) { chRows = []; return void ($("#chlist").innerHTML = "") }
+  const { data } = await sb.from("tickets").select("*").eq("event_id", chEv);
+  chRows = data || []; drawRoster();
+}
+function drawRoster() {
+  const box = $("#chlist"); if (!box || !chEv) return;
+  const tot = chRows.reduce((s, t) => s + t.qty, 0), inn = chRows.reduce((s, t) => s + adm(t), 0), pct = tot ? Math.round(inn / tot * 100) : 0;
+  const rows = chRows.filter(t => chFilter === "out" ? adm(t) < t.qty : chFilter === "in" ? adm(t) > 0 : true).sort((a, b) => (a.buyer_name || "").localeCompare(b.buyer_name || ""));
+  const F = [["out", "Outstanding"], ["in", "Checked in"], ["all", "All"]];
+  box.innerHTML = `<div class="cnt"><div><b>${inn}</b> / ${tot}<small>checked in</small></div><span>${tot - inn} to arrive</span></div><div class="pbar"><i style="width:${pct}%"></i></div>
+  <div class="seg">${F.map(f => `<button data-f="${f[0]}" class="${chFilter === f[0] ? "on" : ""}">${f[1]}</button>`).join("")}</div>
+  ${rows.length ? rows.map(t => { const a = adm(t); return `<div class="chk-tile" data-c="${esc(t.code)}"><div class="chk-tick ${a >= t.qty ? "" : a ? "part" : "off"}">${a >= t.qty ? "✓" : a ? a : "·"}</div><div><b>${esc(t.buyer_name)}</b><br><small>${esc(t.tier)} · ${esc(t.code)}</small></div><span class="rt">${a}/${t.qty}</span></div>` }).join("") : `<p class="hint c">${chRows.length ? "Nobody in this list" : "No tickets sold for this event yet"}</p>`}
+  <p class="hint c">Tap a person to check them in by hand.</p>`;
+}
+
+/* ---- camera scanner ---- */
+let jsqrP = null;
+const loadJsQR = () => window.jsQR ? Promise.resolve() : jsqrP || (jsqrP = new Promise((ok, no) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"; s.onload = ok; s.onerror = () => { jsqrP = null; no() }; document.head.appendChild(s) }));
+
+async function openScan() {
+  if (!chEv) return toast("Select an event first");
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return toast("Camera needs HTTPS or localhost. Type the code instead.");
+  const o = document.createElement("div"); o.className = "scn";
+  o.innerHTML = `<video playsinline muted></video><canvas hidden></canvas><div class="frame"></div><div class="scs">Point the camera at the ticket QR code</div><button class="xb scx" aria-label="Close">${I("x")}</button><div class="scr"><div id="sres"></div><button class="btn s b" id="sn">Scan next</button></div>`;
+  document.body.appendChild(o);
+  const v = o.querySelector("video"), cv = o.querySelector("canvas"), cx = cv.getContext("2d", { willReadFrequently: true }), panel = o.querySelector(".scr"), out = o.querySelector("#sres");
+  let stream, det, run = true, paused = false, last = "", lastT = 0;
+  const close = () => { run = false; stream && stream.getTracks().forEach(t => t.stop()); o.remove(); refreshRoster() };
+  o.querySelector(".scx").onclick = close;
+  const resume = () => { panel.classList.remove("on"); paused = false; lastT = Date.now() };
+  o.querySelector("#sn").onclick = resume;
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false }); v.srcObject = stream; await v.play() }
+  catch { close(); return toast("Camera blocked. Allow camera access, or type the code.") }
+  if ("BarcodeDetector" in window) { try { det = new BarcodeDetector({ formats: ["qr_code"] }) } catch { } }
+  if (!det) { try { await loadJsQR() } catch { close(); return toast("Could not load the QR reader. Type the code instead.") } }
+  const handle = async code => {
+    paused = true; last = code; navigator.vibrate && navigator.vibrate(30);
+    out.innerHTML = `<div class="res"><span class="spin" style="display:inline-block"></span></div>`; panel.classList.add("on");
+    const r = await checkCode(code, chEv);
+    showRes(out, r, code, () => setTimeout(() => { if (run && paused) resume() }, 1800));  // auto-continue after a successful admit
+  };
+  const tick = async () => {
+    if (!run) return;
+    if (!paused && v.readyState >= 2) {
+      let val = "";
+      try {
+        if (det) { const b = await det.detect(v); val = b[0]?.rawValue || "" }
+        else { const k = Math.min(1, 640 / v.videoWidth); cv.width = v.videoWidth * k; cv.height = v.videoHeight * k; cx.drawImage(v, 0, 0, cv.width, cv.height); const d = cx.getImageData(0, 0, cv.width, cv.height), q = jsQR(d.data, d.width, d.height, { inversionAttempts: "dontInvert" }); val = q ? q.data : "" }
+      } catch { }
+      val = val.trim().toUpperCase();
+      if (val && !(val === last && Date.now() - lastT < 3000)) handle(val);
+    }
+    setTimeout(tick, 150);
+  };
+  tick();
+}
+function updateCheckList(eventId) {
+  if (!eventId) { $("#chlist").innerHTML = ""; return; }
+  const { data: tix } = sb.from("tickets").select("*").eq("event_id", eventId).then(r => r);
+  tix.then(tickets => {
+    const checked = (tickets || []).filter(t => t.used).length;
+    $("#chlist").innerHTML = `<h2 class="h2">Checked in (${checked})</h2>${(tickets || []).filter(t => t.used).map(t => `<div class="chk-tile"><div class="chk-tick">✓</div><div><b>${esc(t.buyer_name)}</b><br><small>${esc(t.code)}</small></div></div>`).join("")}`;
+  });
+}
+
+/* ---------- ORGANISER ---------- */
+function rOrg() {
+  const sold = MINE.reduce((s, e) => s + (e.tiers || []).reduce((a, t) => a + t.sold, 0), 0);
+  const gross = MINE.reduce((s, e) => s + (e.tiers || []).reduce((a, t) => a + t.sold * t.price, 0), 0);
+  const yourShare = Math.round(gross * (1 - fee / 100));
+  
+  $("#ol").innerHTML = `<div class="kpis"><div class="kpi"><small>Events</small><b>${MINE.length}</b></div><div class="kpi"><small>Tickets sold</small><b>${sold}</b></div><div class="kpi"><small>Gross sales</small><b>${money(gross)}</b></div><div class="kpi"><small>Your ${100 - fee}% share</small><b>${money(yourShare)}</b></div></div>
+  <h2 class="h2">Sales breakdown</h2>
+  <div class="grp"><div class="gi"><span>Gross revenue</span><span class="sp">${money(gross)}</span></div><div class="gi"><span>Platform fee (${fee}%)</span><span class="sp" style="color:var(--t2)">-${money(Math.round(gross * fee / 100))}</span></div><div class="gi"><span><b>Your payout</b></span><span class="sp" style="color:var(--ac);font-weight:700">${money(yourShare)}</span></div></div>
+  <button class="btn b" style="margin:12px 0 4px" onclick="openEditor()">${I("plus")}New event</button>
+  ${MINE.length ? MINE.map(e => { const s = (e.tiers || []).reduce((a, t) => a + t.sold, 0), n = (e.tiers || []).reduce((a, t) => a + t.qty, 0), rev = (e.tiers || []).reduce((a, t) => a + t.sold * t.price, 0); return `<div class="row" style="flex-direction:column;gap:0;cursor:default"><div style="display:flex;gap:14px" onclick="closeEv();openEv('${e.id}')" style="cursor:pointer"><div class="th" style="width:64px;height:64px">${e.img ? `<img src="${e.img}" alt="">` : I("ticket")}</div><div class="rb"><b>${esc(e.title)}</b><span>${fdate(e.date)}${ended(e) ? " · Ended" : ""}</span><span>${s} / ${n} sold · ${money(rev)}</span></div></div>
+    <div class="acts"><button class="btn s sm" onclick="sales('${e.id}')">${I("users")}Attendees</button><button class="btn s sm" onclick="openEditor('${e.id}')">${I("edit")}Edit</button><button class="btn d sm" onclick="del('${e.id}')">${I("trash")}</button></div></div>` }).join("") : `<div class="emp">${I("grid")}<p>No events yet. Create your first one.</p></div>`}`;
+}
+async function sales(id) {
+  const e = MINE.find(x => x.id === id);
+  const { data: l } = await sb.from("tickets").select("*").eq("event_id", id).order("created_at", { ascending: false });
+  sheet(sh("Attendees", esc(e.title)) + `<div class="grp">${(e.tiers || []).map(t => `<div class="gi"><span>${esc(t.name)}</span><span class="sp">${t.sold} / ${t.qty}</span></div>`).join("")}</div><h2 class="h2">Bookings</h2>
+  ${(l || []).length ? `<div class="grp">${l.map(t => `<div class="gi"><span>${esc(t.buyer_name)}<small>${esc(t.buyer_email)} · ${esc(t.buyer_phone)}</small></span><span class="sp">${t.qty} × ${esc(t.tier)}<small>${esc(t.code)}${t.used ? " ✓" : ""}</small></span></div>`).join("")}</div>` : `<p class="hint">No bookings yet.</p>`}`);
+}
+async function del(id) {
+  const e = MINE.find(x => x.id === id);
+  if (!await ask("Delete this event?", `<b>${esc(e.title)}</b> will be removed permanently.`, "Delete event", "d")) return;
+  const { error } = await sb.from("events").delete().eq("id", id);
+  if (error) return toast(error.message);
+  toast("Event deleted"); await loadAll(); rOrg(); rHome();
+}
+
+function openEditor(id) {
+  needAuth(async () => {
+    if (!isOrg()) return toast("Only organiser accounts can create events");
+    const e = id && MINE.find(x => x.id === id);
+    const D = e ? { title: e.title, category: e.category, city: e.city, venue: e.venue, date: e.date, time: e.time, desc: e.description || "", tagline: e.tagline || "", featured: !!e.featured } : { title: "", category: "", city: "", venue: "", date: "", time: "", desc: "", tagline: "", featured: false };
+    const T = e ? e.tiers.map(t => ({ ...t })) : [{ name: "General Admission", price: "", qty: "", sold: 0 }];
+    const PR = e ? (e.presenters || []).map(x => ({ ...x })) : [];
+    let img = e ? e.img || "" : ""; const m = sheet(""), g = s => m.querySelector(s);
+    const draw = () => {
+      g(".sh").innerHTML = `<div class="grab"></div>` + sh(e ? "Edit event" : "New event") +
+        `<div class="fld"><label>Event name</label><input class="in" data-k="title" value="${esc(D.title)}" placeholder="e.g. Lusaka Comedy Night"></div>
+        <div class="two"><div class="fld"><label>Category</label><select class="in" data-k="category"><option value="">Select</option>${CATS.map(c => `<option ${c === D.category ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
+        <div class="fld"><label>City</label><input class="in" data-k="city" list="cl" value="${esc(D.city)}" placeholder="Lusaka"><datalist id="cl">${CITIES.map(c => `<option>${c}</option>`).join("")}</datalist></div></div>
+        <div class="fld"><label>Venue</label><input class="in" data-k="venue" value="${esc(D.venue)}" placeholder="e.g. Mulungushi Conference Centre"></div>
+        <div class="two"><div class="fld"><label>Date</label><input class="in" type="date" data-k="date" value="${D.date}" ${e ? "" : `min="${today()}"`}></div><div class="fld"><label>Start time</label><input class="in" type="time" data-k="time" value="${D.time}"></div></div>
+        <div class="fld"><label>Short summary (shown under About)</label><input class="in" data-k="tagline" value="${esc(D.tagline)}" placeholder="One line that sells the event"></div>
+        <div class="fld"><label>Full description</label><textarea class="in" data-k="desc" placeholder="Tell people what to expect">${esc(D.desc)}</textarea></div>
+        <div class="fld"><label>Banner image</label><div class="up"><input type="file" accept="image/*" id="fi">${img ? `<img src="${img}" alt="">` : `<div>${I("img")}<br>Tap to upload a banner</div>`}</div></div>
+        <h2 class="h2" style="margin-top:8px">Presenters</h2><p class="sub">People performing or speaking. Add a photo and name for each.</p>
+        ${PR.map((x, i) => `<div class="pr"><label class="pth"><input type="file" accept="image/*" data-pi="${i}">${x.img ? `<img src="${x.img}" alt="">` : I("user")}</label><div class="pf"><input class="in" data-p="${i}" data-f="name" placeholder="Name" value="${esc(x.name)}"><input class="in" data-p="${i}" data-f="role" placeholder="Role (e.g. Headliner)" value="${esc(x.role || "")}"></div><button class="btn d sm" data-pr="${i}" aria-label="Remove">${I("trash")}</button></div>`).join("")}
+        <button class="btn s b" id="ap" style="margin-bottom:8px">${I("plus")}Add presenter</button>
+        <label class="chk"><input type="checkbox" data-k="featured" ${D.featured ? "checked" : ""}>Feature on the Explore tab</label>
+        <h2 class="h2" style="margin-top:8px">Tickets</h2><p class="sub">Use 0 for free tickets. A ${fee}% platform fee applies.</p>
+        ${T.map((t, i) => `<div class="tier"><input class="in" data-t="${i}" data-f="name" placeholder="Name" value="${esc(t.name)}"><input class="in" type="number" min="0" data-t="${i}" data-f="price" placeholder="Price" value="${t.price}"><input class="in" type="number" min="1" data-t="${i}" data-f="qty" placeholder="Qty" value="${t.qty}"><button class="btn d sm" data-rm="${i}" ${T.length === 1 || t.sold > 0 ? "disabled" : ""} aria-label="Remove">${I("trash")}</button></div>`).join("")}
+        <button class="btn s b" id="at" style="margin-bottom:14px">${I("plus")}Add ticket type</button>
+        <button class="btn b" id="sv">${e ? "Save changes" : "Publish event"}</button>`;
+      m.querySelectorAll("[data-k]").forEach(i => i.oninput = i.onchange = () => D[i.dataset.k] = i.type === "checkbox" ? i.checked : i.value);
+      m.querySelectorAll("[data-t]").forEach(i => i.oninput = () => T[i.dataset.t][i.dataset.f] = i.value);
+      m.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { T.splice(+b.dataset.rm, 1); draw() });
+      g("#at").onclick = () => { T.push({ name: "", price: "", qty: "", sold: 0 }); draw() };
+      m.querySelectorAll("[data-p]").forEach(i => i.oninput = () => PR[i.dataset.p][i.dataset.f] = i.value);
+      m.querySelectorAll("[data-pr]").forEach(b => b.onclick = () => { PR.splice(+b.dataset.pr, 1); draw() });
+      m.querySelectorAll("[data-pi]").forEach(i => i.onchange = () => shrink(i.files[0], 400, u => { PR[i.dataset.pi].img = u; draw() }));
+      g("#ap").onclick = () => { PR.push({ name: "", role: "", img: "" }); draw() };
+      g("#fi").onchange = pick; g("#sv").onclick = save;
+    };
+    function pick(ev) {
+      const f = ev.target.files[0]; if (!f) return; if (!f.type.startsWith("image/")) return toast("Choose an image file");
+      const r = new FileReader();
+      r.onload = x => { const im = new Image(); im.onload = () => { const s = Math.min(1, 900 / im.width), c = document.createElement("canvas"); c.width = im.width * s; c.height = im.height * s; c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); img = c.toDataURL("image/jpeg", .78); draw() }; im.onerror = () => toast("Could not read that image"); im.src = x.target.result };
+      r.readAsDataURL(f);
+    }
+    async function save() {
+      for (const k of ["title", "category", "city", "venue", "date", "time"]) if (!String(D[k]).trim()) return toast("Please fill in all event details");
+      if (!e && D.date < today()) return toast("Pick a date today or later");
+      for (const t of T) {
+        if (!String(t.name).trim()) return toast("Every ticket type needs a name");
+        if (t.price === "" || +t.price < 0) return toast("Enter a valid price");
+        if (t.qty === "" || +t.qty < 1) return toast("Enter a quantity");
+        if (+t.qty < t.sold) return toast(`"${t.name}" already has ${t.sold} sold`);
+      }
+      const btn = g("#sv"); btn.disabled = true;
+      const ev = { id: e ? e.id : uid("ev_"), owner: me.id, owner_name: me.name, title: D.title.trim(), category: D.category, city: D.city.trim(), venue: D.venue.trim(), date: D.date, time: D.time, description: D.desc.trim(), img,
+        tiers: T.map(t => ({ name: t.name.trim(), price: +t.price || 0, qty: +t.qty, sold: t.sold || 0 })), featured: D.featured, tagline: D.tagline.trim(), presenters: PR.filter(x => String(x.name).trim()).map(x => ({ name: x.name.trim(), role: (x.role || "").trim(), img: x.img || "" })), status: "live" };
+      const { error } = await (e ? sb.from("events").update(ev).eq("id", ev.id) : sb.from("events").insert(ev));
+      if (error) { btn.disabled = false; return toast(error.message) }
+      m.close(); toast(e ? "Event updated" : "Event published"); await loadAll(); rOrg(); rHome();
+    }
+    draw();
+  });
+}
+
+/* ---------- ACCOUNT ---------- */
+function rMe() {
+  $("#ml").innerHTML = me ? `<div class="me"><div class="av">${esc((me.name || "U")[0].toUpperCase())}</div><h2>${esc(me.name || "")}</h2><p style="color:var(--t2);margin:6px 0 20px;font-size:.9rem">${esc(me.email || "")}<br>${esc(me.phone || "")}</p></div>
+    <div class="grp"><div class="gi">${I("ticket")}<span>Tickets booked</span><span class="sp">${TIX.length}</span></div>${isOrg() ? `<div class="gi">${I("grid")}<span>Events created</span><span class="sp">${MINE.length}</span></div>` : ""}<div class="gi">${I("user")}<span>Account type</span><span class="sp">${me.role === "organiser" ? "Organiser" : me.role === "admin" ? "Admin" : "Customer"}</span></div></div>
+    ${isOrg() ? "" : `<p class="hint c">Want to sell tickets? Create a separate organiser account.</p>`}
+    <button class="btn d b" style="margin-top:20px" id="so">Sign out</button>`
+    : `<div class="emp">${I("user")}<p>Sign in to book tickets and manage events.</p><button class="btn" style="margin-top:16px" onclick="openAuth()">Sign in or create account</button></div>`;
+  if (USE_LOCAL) {
+    $("#ml").insertAdjacentHTML("beforeend", '<button class="btn s b" id="rs" style="margin-top:12px">Reset local demo data</button><p class="hint c">Local mode: accounts, events and tickets are saved in this browser only.</p>');
+    $("#rs").onclick = async () => { if (await ask("Reset demo data?", "This clears all local accounts, events and tickets.", "Reset", "d")) { Object.keys(localStorage).filter(k => k.startsWith("tz_")).forEach(k => localStorage.removeItem(k)); location.reload() } };
+  }
+  const b = $("#so"); if (b) b.onclick = async () => { if (await ask("Sign out?", "You can sign back in any time.", "Sign out", "d")) { await sb.auth.signOut(); me = null; MINE = []; TIX = []; go("home"); toast("Signed out") } };
+}
+
+/* ---------- INIT ---------- */
+loadSaved();
+updateFbtn();
+(async () => {
+  await loadMe(); await loadAll(); go("home");
+  sb.auth.onAuthStateChange(async () => { await loadMe(); await loadAll(); if (tab === "home") rHome() });
+})();
+</script>
+</body>
+</html>
