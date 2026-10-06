@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="description" content="TicketZed — discover events, buy tickets and check guests in.">
-<title>TicketZed</title>
+<meta name="description" content="Tamba.Events — discover events, buy tickets and check guests in.">
+<title>Tamba.Events</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
@@ -179,7 +179,8 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 <body>
 <div class="app">
   <section class="pg on" id="p-home">
-    <h1 class="lt">Explore Events &amp; Get That Ticket</h1>
+    <h1 class="lt">Tamba.Events</h1>
+    <h2 class="lt">Explore Events &amp; Get That Ticket</h2>
     <div class="sbar">
       <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input id="q" type="search" placeholder="Search events, venues or cities" autocomplete="off"></div>
       <button class="fbtn" id="fb" aria-label="Filters"><svg class="i" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg><span class="fbadge" id="fbadge"></span></button>
@@ -267,7 +268,7 @@ const SAMPLES = [
   ["Startup Pitch Day", "Business & Networking", "Kitwe", "Kitwe Innovation Hub", 25, "10:00", false, ["#64D2FF", "#5E5CE6"], [["Attendee", 80, 150, 22]], "Ten startups pitch live to a panel of investors.", "Watch ten early-stage startups pitch live, then vote for the audience favourite.\n\nIncludes lunch and a networking session with founders and investors after the pitches.", ["Chilufya Mbewe|Host", "Investor Panel|Judges"]],
   ["Chipata Cultural Day", "Other", "Chipata", "Chipata Cultural Grounds", 30, "10:00", false, ["#A2845E", "#FF9500"], [["Free Entry", 0, 600, 140]], "Traditional dance, food and crafts celebrating Eastern Province culture.", "A day-long celebration of music, dance, storytelling and food, open to families and visitors.\n\nCraft stalls and food vendors open from 10:00, with the main performances from 13:00.", ["Ngoni Dance Troupe|Performers", "Royal Drummers|Drummers", "Mama Ruth|Storyteller"]]
 ].map((s, i) => ({
-  id: "demo_" + i, demo: true, owner: "demo", owner_name: "TicketZed Sample",
+  id: "demo_" + i, demo: true, owner: "demo", owner_name: "Tamba.Events Sample",
   title: s[0], category: s[1], city: s[2], venue: s[3], date: dAhead(s[4]), time: s[5],
   featured: s[6], img: art(...s[7]),
   tiers: s[8].map(t => ({ name: t[0], price: t[1], qty: t[2], sold: t[3] })),
@@ -537,7 +538,7 @@ function openAuth(after, startMode = "login") {
   const draw = () => {
     g(".sh").innerHTML = `<div class="grab"></div>` +
       sh(mode === "login" ? "Welcome back" : "Create account",
-         mode === "login" ? "Sign in to book tickets and manage events." : "Join TicketZed in under a minute.") +
+         mode === "login" ? "Sign in to book tickets and manage events." : "Join Tamba.Events in under a minute.") +
       `<div class="seg"><button data-m="login" class="${mode === "login" ? "on" : ""}">Sign in</button><button data-m="register" class="${mode === "register" ? "on" : ""}">Create account</button></div>` +
       (mode === "register"
         ? f("rn", "Full name", "text", "Your full name", "name") +
@@ -779,7 +780,7 @@ function openEv(id) {
   const e = ALL.find(x => x.id === id);
   if (!e) return toast("Event not found");
   const dis = ended(e) || left(e) <= 0, p = minP(e), pr = e.presenters || [];
-  const wa = `https://wa.me/?text=${encodeURIComponent(`Check out: ${e.title} on ${fdate(e.date)} at ${e.venue}, ${e.city}. Get your ticket on TicketZed!`)}`;
+  const wa = `https://wa.me/?text=${encodeURIComponent(`Check out: ${e.title} on ${fdate(e.date)} at ${e.venue}, ${e.city}. Get your ticket on Tamba.Events!`)}`;
   $("#detail").innerHTML = `<div class="bkw"><button class="bk" onclick="closeEv()" aria-label="Back">${I("back")}</button></div>
   <div class="dimg">${e.img ? `<img src="${e.img}" alt="" loading="lazy">` : I("ticket")}</div>
   <div class="dbd"><span class="cat">${esc(e.category)}</span><h1>${esc(e.title)}</h1>
@@ -1009,7 +1010,7 @@ function giftTicket(t, parent) {
     const ph = inner.querySelector("#gph").value.trim();
     const msg = inner.querySelector("#gmsg").value.trim();
     if (!isValidPhone(ph)) return toast("Enter a valid phone number");
-    const text = `I'm gifting you a ticket!\n\n${t.event_title}\n${fdate(t.date)} at ${t.venue}\n\nCode: ${t.code}\n\n${msg ? "Message: " + msg + "\n\n" : ""}Download TicketZed to use it!`;
+    const text = `I'm gifting you a ticket!\n\n${t.event_title}\n${fdate(t.date)} at ${t.venue}\n\nCode: ${t.code}\n\n${msg ? "Message: " + msg + "\n\n" : ""}Download Tamba.Events to use it!`;
     window.open(`https://wa.me/${sanitizePhone(ph)}?text=${encodeURIComponent(text)}`, "_blank");
     inner.close();
     parent.close();
