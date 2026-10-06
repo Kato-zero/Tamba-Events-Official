@@ -216,7 +216,7 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 
 const SUPABASE_URL = "https://phcjncjdgqdltiyesvfw.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBoY2puY2pkZ3FkbHRpeWVzdmZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA1OTk4MDIsImV4cCI6MjEwNjE3NTgwMn0.GUbvA_fV289ccSg4U-Kgl9EtekjYOjaJirwPX_GQG54";
-const USE_LOCAL = true;
+const USE_LOCAL = false;               // ← switched to real Supabase
 const sb = USE_LOCAL ? localSb() : supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const $ = s => document.querySelector(s);
@@ -253,7 +253,7 @@ let cat = "", city = "", dateF = "", priceF = "", q = "", psT = null, chartInst 
 let qSearchTimeout = null;
 
 /* ---------- PLACEHOLDER EVENTS ---------- */
-const SHOW_SAMPLES = true;
+const SHOW_SAMPLES = false;             // real events come from Supabase now
 const dAhead = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10) };
 const art = (a, b) => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="900" height="600" fill="url(#g)"/></svg>`);
 const SAMPLES = [
@@ -277,7 +277,7 @@ const SAMPLES = [
   status: "live"
 }));
 
-/* ---------- LOCALSTORAGE BACKEND (IMPROVED) ---------- */
+/* ---------- LOCALSTORAGE BACKEND (only used when USE_LOCAL=true) ---------- */
 function localSb() {
   const K = "tz_", SEED = "3", now = () => new Date().toISOString();
   const rd = (t, d) => {
@@ -292,7 +292,7 @@ function localSb() {
   const wr = (t, v) => {
     try {
       const s = JSON.stringify(v);
-      if (s.length > 5242880) { // 5MB check
+      if (s.length > 5242880) {
         console.warn("Skipping write - data too large");
         return false;
       }
@@ -511,7 +511,7 @@ async function loadMe() {
     const { data: { session } } = await sb.auth.getSession();
     if (!session) { me = null; return }
     const { data: p, error } = await sb.from("profiles").select("*").eq("id", session.user.id).single();
-    if (error || !p) { 
+    if (error || !p) {
       try { await sb.auth.signOut() } catch { }
       me = null;
       return;
@@ -548,7 +548,7 @@ function openAuth(after, startMode = "login") {
           `<div class="fld"><label>I want to</label><div class="seg"><button data-r="customer" class="${role === "customer" ? "on" : ""}">Buy tickets</button><button data-r="organiser" class="${role === "organiser" ? "on" : ""}">Sell tickets</button></div><p class="hint">Customers book tickets. Organisers create and manage events.</p></div>`
         : f("le", "Email", "email", "you@example.com", "email") + f("lw", "Password", "password", "Your password", "current-password")) +
       `<button class="btn b" id="go" style="margin-top:6px">${mode === "login" ? "Sign in" : "Create account"}</button>`;
-    
+
     m.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { mode = b.dataset.m; draw() });
     m.querySelectorAll("[data-r]").forEach(b => b.onclick = () => {
       role = b.dataset.r;
@@ -575,10 +575,17 @@ function openAuth(after, startMode = "login") {
       if (pw.length < 8) return toast("Password must be at least 8 characters");
       btn.disabled = true;
       try {
-        const { data, error } = await sb.auth.signUp({ email: e, password: pw, options: { data: { name: n } } });
+        // Send name / phone / role via user metadata — a DB trigger creates the profile row.
+        const { data, error } = await sb.auth.signUp({
+          email: e,
+          password: pw,
+          options: { data: { name: n, phone: sanitizePhone(p), role } }
+        });
         if (error) { btn.disabled = false; return toast(error.message) }
-        if (!data.user) { btn.disabled = false; return toast("Check your email to confirm, then sign in") }
-        await sb.from("profiles").upsert({ id: data.user.id, name: n, phone: p, role }, { onConflict: "id" });
+        if (!data.session) {
+          btn.disabled = false;
+          return toast("Check your email to confirm, then sign in");
+        }
         await loadMe();
         await loadAll();
         drawTabs();
@@ -599,6 +606,7 @@ function openAuth(after, startMode = "login") {
         const { error } = await sb.auth.signInWithPassword({ email: e, password: pw });
         if (error) { btn.disabled = false; return toast(error.message) }
         await loadMe();
+        if (!me) { btn.disabled = false; return toast("Could not load your profile") }
         await loadAll();
         drawTabs();
         m.close();
@@ -813,7 +821,6 @@ function closeEv() {
     clearInterval(psT);
     psT = null;
   }
-  // Clean up carousel listeners
   const pst = document.getElementById("pst");
   if (pst) {
     pst.removeEventListener("scroll", null);
@@ -1025,17 +1032,16 @@ function rTix() {
     box.innerHTML = `<div class="emp">${I("ticket")}<p>No tickets yet</p><button class="btn" style="margin-top:16px" onclick="go('home')">Browse events</button></div>`;
     return;
   }
-  
-  // Group tickets by event_title and sort alphabetically
+
   const grouped = {};
   TIX.forEach(t => {
     const eventTitle = esc(t.event_title || "Unknown Event");
     if (!grouped[eventTitle]) grouped[eventTitle] = [];
     grouped[eventTitle].push(t);
   });
-  
+
   const sortedEvents = Object.keys(grouped).sort();
-  
+
   box.innerHTML = sortedEvents.map(eventTitle => `
     <h2 class="h2" style="margin-top:16px;margin-bottom:12px">${eventTitle}</h2>
     ${grouped[eventTitle].map(t => `<div class="row" data-tk="${esc(t.id)}">
@@ -1045,7 +1051,7 @@ function rTix() {
       <em style="color:var(--ac);font-family:ui-monospace,Menlo,monospace">${esc(t.code)}${t.used ? " ✓ Used" : adm(t) > 0 ? ` · ${adm(t)}/${t.qty} in` : ""}</em></div>
       <button class="btn icon d" title="Delete ticket" onclick="delTix('${esc(t.id)}')">${I("trash")}</button></div>`).join("")}
   `).join("");
-  
+
   box.onclick = e => {
     const r = e.target.closest("[data-tk]");
     if (r && !e.target.closest("button")) showTicket(TIX.find(x => x.id === r.dataset.tk));
@@ -1210,7 +1216,7 @@ function drawRoster() {
     ${rows.length ? `<p class="hint c">Tap a person to check them in by hand.</p>` : ""}`;
 }
 
-/* ---- SCANNER (IMPROVED WITH CLEANUP) ---- */
+/* ---- SCANNER ---- */
 let jsqrP = null, scannerActive = null;
 const loadJsQR = () => {
   if (window.jsQR) return Promise.resolve();
@@ -1635,17 +1641,6 @@ function rMe() {
     : `<div class="emp">${I("user")}<p>Sign in to book tickets and manage events.</p>
        <button class="btn" style="margin-top:16px" onclick="openAuth()">Sign in or create account</button></div>`;
 
-  if (USE_LOCAL) {
-    $("#ml").insertAdjacentHTML("beforeend",
-      `<button class="btn s b" id="rs" style="margin-top:12px">Reset local demo data</button>
-       <p class="hint c">Local mode: accounts, events and tickets are saved in this browser only.</p>`);
-    $("#rs").onclick = async () => {
-      if (await ask("Reset demo data?", "This clears all local accounts, events and tickets.", "Reset", "d")) {
-        Object.keys(localStorage).filter(k => k.startsWith("tz_")).forEach(k => localStorage.removeItem(k));
-        location.reload();
-      }
-    };
-  }
   const b = $("#so");
   if (b) b.onclick = async () => {
     if (await ask("Sign out?", "You can sign back in any time.", "Sign out", "d")) {
@@ -1669,11 +1664,17 @@ $("#list").innerHTML = `<div class="sk">${skeleton(5)}</div>`;
     await loadMe();
     await loadAll();
     go("home");
-    sb.auth.onAuthStateChange(async () => {
+    sb.auth.onAuthStateChange(async (event) => {
+      if (!["SIGNED_IN", "SIGNED_OUT", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) return;
       try {
         await loadMe();
         await loadAll();
+        drawTabs();
         if (tab === "home") rHome();
+        else if (tab === "tix") rTix();
+        else if (tab === "org") rOrg();
+        else if (tab === "chk") rChk();
+        else if (tab === "me") rMe();
       } catch (e) {
         console.error("Auth state change error:", e);
       }
