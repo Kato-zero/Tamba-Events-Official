@@ -212,12 +212,84 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
   ✓ Scanner resource cleanup
   ✓ Chart instance management
   ✓ Faster local storage performance
+  ✓ Real Lipila mobile-money payments
   ===================================*/
 
 const SUPABASE_URL = "https://grbcwerpexwzttdwukjv.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdyYmN3ZXJwZXh3enR0ZHd1a2p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzMDU5NzYsImV4cCI6MjEwNjg4MTk3Nn0._eH8J9Y-4I20UHHCsWmvbfDJmysNFGM9ErEGxb6Cncw";
 const USE_LOCAL = false;               // ← switched to real Supabase
 const sb = USE_LOCAL ? localSb() : supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ---------- PAYMENTS (Lipila mobile money via /api) ---------- */
+const PAY = {
+  create: "/api/createpayment",   // POST
+  status: "/api/checkpayment",    // GET ?referenceId=
+  pollMs: 4000,                   // how often to ask Lipila for the status
+  timeoutMs: 120000               // give the customer 2 minutes to approve
+};
+
+/* Normalise whatever Lipila sends back into paid | failed | pending */
+function paymentState(resp) {
+  const root = resp && typeof resp === "object" ? resp : {};
+  const body = root.data && typeof root.data === "object" ? root.data : root;
+  const vals = [];
+  const scan = (o, depth) => {
+    if (!o || typeof o !== "object" || depth > 3) return;
+    for (const [k, v] of Object.entries(o)) {
+      if (typeof v === "string" && /status|state|result/i.test(k)) vals.push(v);
+      else if (v && typeof v === "object") scan(v, depth + 1);
+    }
+  };
+  scan(body, 0);
+  const s = vals.join(" ").toLowerCase();
+  if (/\b(successful|success|succeeded|completed|complete|paid|approved|collected)\b/.test(s)) return "paid";
+  if (/\b(failed|failure|declined|decline|cancelled|canceled|rejected|expired|reversed|insufficient|invalid)\b/.test(s)) return "failed";
+  return "pending";
+}
+
+/* Ask the backend to push a mobile-money prompt to the customer's phone */
+async function startPayment({ amount, name, phone }) {
+  let r;
+  try {
+    r = await fetch(PAY.create, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ amount, customer_name: name, phone })
+    });
+  } catch (e) {
+    throw new Error("Could not reach the payment service. Check your connection and try again.");
+  }
+  let data = null;
+  try { data = await r.json() } catch { data = null }
+  if (!r.ok || !data || !data.success || !data.referenceId) {
+    throw new Error((data && data.message) || "Could not start the payment. Please try again.");
+  }
+  return data.referenceId;
+}
+
+/* Poll /api/checkpayment until the transaction settles or times out */
+async function pollPayment(referenceId, onUpdate) {
+  const started = Date.now();
+  let tries = 0;
+  while (Date.now() - started < PAY.timeoutMs) {
+    await new Promise(r => setTimeout(r, tries === 0 ? 2500 : PAY.pollMs));
+    tries++;
+    let resp = null;
+    try {
+      const r = await fetch(PAY.status + "?referenceId=" + encodeURIComponent(referenceId), {
+        headers: { accept: "application/json" }
+      });
+      resp = await r.json().catch(() => null);
+    } catch (e) {
+      console.warn("Payment status check failed:", e);
+    }
+    const st = paymentState(resp);
+    if (onUpdate) onUpdate(st);
+    if (st === "paid") return { status: "paid", referenceId, response: resp };
+    if (st === "failed") return { status: "failed", referenceId, response: resp };
+  }
+  return { status: "pending", referenceId };
+}
 
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -911,7 +983,9 @@ function buy(id) {
         ${tot > 0 ? `<div class="fld"><label>Pay with mobile money</label><div class="seg">${["MTN", "Airtel", "Zamtel"].map(p => `<button data-p="${p}" class="${p === pay ? "on" : ""}">${p}</button>`).join("")}</div></div>` : ""}
         <div class="tot"><span>Total</span><b>${tot ? money(tot) : "Free"}</b></div>
         <button class="btn b" id="pay">${tot ? "Pay " + money(tot) : "Confirm booking"}</button>
-        <p class="hint c">Demo checkout: no real payment is taken.</p>`;
+        <p class="hint c">${tot
+          ? "You'll receive a mobile money prompt on your phone to approve this payment."
+          : "No payment is needed for free tickets."}</p>`;
 
       g("#bn").oninput = x => { nm = x.target.value };
       g("#bp").oninput = x => { ph = x.target.value };
@@ -942,10 +1016,37 @@ function buy(id) {
         btn.disabled = true;
         btn.innerHTML = '<span class="spin"></span>';
 
-        try {
-          const { error: be } = await sb.rpc("buy_ticket", { p_event_id: e.id, p_tier_name: t.name, p_qty: qty });
-          if (be) { draw(); return toast(be.message) }
+        let referenceId = "";
 
+        try {
+          /* ---- 1. Take the money first (free tickets skip straight through) ---- */
+          if (tot > 0) {
+            referenceId = await startPayment({ amount: tot, name: nm.trim(), phone: ph });
+
+            btn.innerHTML = '<span class="spin"></span> Approve on your phone…';
+            const paid = await pollPayment(referenceId, st => {
+              if (st === "pending") btn.innerHTML = '<span class="spin"></span> Waiting for confirmation…';
+            });
+
+            if (paid.status !== "paid") {
+              draw();
+              return toast(paid.status === "failed"
+                ? "Payment was not completed. You have not been charged."
+                : "Payment is still pending. Approve it on your phone, then try again.");
+            }
+            btn.innerHTML = '<span class="spin"></span> Issuing ticket…';
+          }
+
+          /* ---- 2. Reserve the stock ---- */
+          const { error: be } = await sb.rpc("buy_ticket", { p_event_id: e.id, p_tier_name: t.name, p_qty: qty });
+          if (be) {
+            draw();
+            return toast(referenceId
+              ? "Payment received (ref " + referenceId + ") but the tickets just sold out. Please contact support for a refund."
+              : be.message);
+          }
+
+          /* ---- 3. Save the ticket ---- */
           const tk = {
             id: uid("tk_"),
             code: "TZ-" + Math.random().toString(36).slice(2, 10).toUpperCase(),
@@ -956,16 +1057,21 @@ function buy(id) {
           };
 
           const { error: te } = await sb.from("tickets").insert(tk);
-          if (te) { draw(); return toast(te.message) }
+          if (te) {
+            draw();
+            return toast(referenceId
+              ? "Payment received (ref " + referenceId + ") but we could not issue the ticket. Please contact support."
+              : te.message);
+          }
 
           m.close();
           await loadAll();
           if ($("#detail").classList.contains("on")) openEv(e.id);
           showTicket(tk, true);
-        } catch (e) {
-          btn.disabled = false;
-          console.error("Buy error:", e);
-          toast("An error occurred");
+        } catch (err) {
+          draw();
+          console.error("Buy error:", err);
+          toast(err && err.message ? err.message : "An error occurred");
         }
       };
     };
