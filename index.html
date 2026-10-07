@@ -66,6 +66,10 @@ h1.lt{font-size:2.1rem;font-weight:800;letter-spacing:-.03em;padding:calc(var(--
 .bk{position:absolute;top:calc(var(--st) + 12px);left:14px;width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.88);backdrop-filter:blur(10px);display:grid;place-items:center;color:var(--ac);box-shadow:0 2px 8px rgba(0,0,0,.15);z-index:10}
 .dbd{padding:20px 20px 8px;margin-top:-22px;position:relative;background:#fff;border-radius:24px 24px 0 0}
 .dbd h1{font-size:1.8rem;font-weight:800;letter-spacing:-.03em;line-height:1.1;margin:6px 0 16px}
+.dbd .btn.icon{position:static;background:var(--g1);color:var(--ac)}
+.dbd .btn.icon.heart{color:var(--t3)}
+.dbd .btn.icon.heart.saved{color:var(--rd)}
+button.gi{width:100%;text-align:left;cursor:pointer}
 .desc{color:var(--t2);line-height:1.6;white-space:pre-line}
 .grp{background:var(--g1);border-radius:16px;overflow:hidden}
 .gi{display:flex;gap:12px;padding:13px 16px;align-items:center;border-bottom:1px solid var(--sep);font-size:.95rem}
@@ -213,6 +217,8 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
   ✓ Chart instance management
   ✓ Faster local storage performance
   ✓ Real Lipila mobile-money payments
+  ✓ Event sharing (native share, copy link, WhatsApp)
+  ✓ Deep links: ?event=<id> opens the event; back button closes it
   ===================================*/
 
 const SUPABASE_URL = "https://grbcwerpexwzttdwukjv.supabase.co";
@@ -316,11 +322,13 @@ const P = {
   users: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8"/>', img: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
   heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
   share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51a6 6 0 0 0 6.82 0M15.41 6.49a6 6 0 0 0-6.82 0"/>',
+  link: '<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>',
+  copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>',
   scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10"/>'
 };
 const I = (n, c = "") => `<svg class="i ${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
 
-let me = null, ALL = [], MINE = [], TIX = [], SAVED = [], fee = 5;
+let me = null, ALL = [], MINE = [], TIX = [], SAVED = [], fee = 5, openEvId = null;
 let cat = "", city = "", dateF = "", priceF = "", q = "", psT = null, chartInst = null;
 let qSearchTimeout = null;
 
@@ -856,17 +864,16 @@ function rHome() {
 }
 
 /* ---------- EVENT DETAIL ---------- */
-function openEv(id) {
+function openEv(id, fromHistory) {
   const e = ALL.find(x => x.id === id);
   if (!e) return toast("Event not found");
   const dis = ended(e) || left(e) <= 0, p = minP(e), pr = e.presenters || [];
-  const wa = `https://wa.me/?text=${encodeURIComponent(`Check out: ${e.title} on ${fdate(e.date)} at ${e.venue}, ${e.city}. Get your ticket on Tamba.Events!`)}`;
   $("#detail").innerHTML = `<div class="bkw"><button class="bk" onclick="closeEv()" aria-label="Back">${I("back")}</button></div>
   <div class="dimg">${e.img ? `<img src="${e.img}" alt="" loading="lazy">` : I("ticket")}</div>
   <div class="dbd"><span class="cat">${esc(e.category)}</span><h1>${esc(e.title)}</h1>
   <div style="display:flex;gap:8px;margin-bottom:16px">
     <button class="btn icon heart ${isSaved(e.id) ? "saved" : ""}" data-save="${e.id}" onclick="toggleSave('${e.id}')" aria-label="Save event">${I("heart")}</button>
-    <a href="${wa}" target="_blank" rel="noopener noreferrer" class="btn icon" style="background:none;color:var(--ac);text-decoration:none" aria-label="Share on WhatsApp">${I("share")}</a>
+    <button class="btn icon" onclick="shareEvent('${e.id}')" aria-label="Share event">${I("share")}</button>
   </div>
   <div class="grp">
     <div class="gi">${I("cal")}<span>${fdate(e.date)}</span></div>
@@ -885,18 +892,23 @@ function openEv(id) {
   $("#detail").classList.add("on");
   $("#detail").scrollTop = 0;
   if (pr.length) initPS($("#detail"));
+  openEvId = id;
+  if (!fromHistory) pushEventUrl(id);
 }
 
-function closeEv() {
+function closeEv(fromHistory) {
+  const wasOpen = $("#detail").classList.contains("on");
   $("#detail").classList.remove("on");
+  openEvId = null;
   if (psT !== null) {
     clearInterval(psT);
     psT = null;
   }
   const pst = document.getElementById("pst");
-  if (pst) {
-    pst.removeEventListener("scroll", null);
-    pst.querySelectorAll(".psl").forEach(x => x.onclick = null);
+  if (pst) pst.querySelectorAll(".psl").forEach(x => x.onclick = null);
+  // If we pushed an "?event=" entry, step back so the URL matches the view.
+  if (!fromHistory && wasOpen && history.state && history.state.event) {
+    history.back();
   }
 }
 
@@ -954,6 +966,128 @@ function initPS(root) {
   act();
   play();
 }
+
+/* ---------- SHARE & DEEP LINKS ---------- */
+function eventUrl(id) {
+  const u = new URL(location.href);
+  u.searchParams.set("event", id);
+  u.hash = "";
+  return u.toString();
+}
+
+function pushEventUrl(id) {
+  if (history.state && history.state.event === id) return;
+  const u = new URL(location.href);
+  u.searchParams.set("event", id);
+  try {
+    history.pushState({ event: id }, "", u.toString());
+  } catch (e) {
+    console.warn("pushState failed:", e);
+  }
+}
+
+async function copyText(t) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(t);
+      return true;
+    }
+  } catch (e) {
+    console.warn("Clipboard API failed:", e);
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = t;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:-1000px;left:-1000px;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch (e) {
+    console.warn("Copy fallback failed:", e);
+    return false;
+  }
+}
+
+function shareEvent(id) {
+  const e = ALL.find(x => x.id === id);
+  if (!e) return toast("Event not found");
+  const url = eventUrl(id);
+  const text = `${e.title} · ${fdate(e.date)} at ${e.venue}, ${e.city}`;
+  if (navigator.share) {
+    try {
+      navigator.share({ title: e.title, text, url }).catch(err => {
+        if (err && err.name === "AbortError") return;
+        openShareSheet(e, url, text);
+      });
+      return;
+    } catch (err) {
+      console.warn("navigator.share failed:", err);
+    }
+  }
+  openShareSheet(e, url, text);
+}
+
+function openShareSheet(e, url, text) {
+  const m = sheet(sh("Share this event", esc(e.title)) +
+    `<div class="grp">
+       <button class="gi" data-sh="copy">${I("copy")}<span>Copy link</span></button>
+       <button class="gi" data-sh="wa">${I("share")}<span>Share on WhatsApp</span></button>
+       ${navigator.share ? `<button class="gi" data-sh="more">${I("share")}<span>More sharing options</span></button>` : ""}
+     </div>
+     <div class="fld" style="margin-top:14px"><label>Event link</label>
+       <input class="in" id="shu" readonly value="${esc(url)}"></div>
+     <p class="hint c">Anyone with this link can open this event in Tamba.Events.</p>`);
+
+  m.querySelectorAll("[data-sh]").forEach(b => b.onclick = async () => {
+    const k = b.dataset.sh;
+    if (k === "copy") {
+      const ok = await copyText(url);
+      toast(ok ? "Link copied" : "Could not copy the link");
+      if (ok) m.close();
+    } else if (k === "wa") {
+      window.open(`https://wa.me/?text=${encodeURIComponent(text + "\n\n" + url)}`, "_blank", "noopener");
+      m.close();
+    } else {
+      try {
+        await navigator.share({ title: e.title, text, url });
+        m.close();
+      } catch (err) {
+        if (!err || err.name !== "AbortError") toast("Could not open sharing");
+      }
+    }
+  });
+
+  const inp = m.querySelector("#shu");
+  if (inp) inp.onclick = () => inp.select();
+}
+
+/* Open the event named in ?event=... on first load */
+function openFromUrl() {
+  const id = new URLSearchParams(location.search).get("event");
+  if (!id) return;
+  // Leave a clean entry behind so the back button returns here, not off-site.
+  const u = new URL(location.href);
+  u.searchParams.delete("event");
+  try {
+    history.replaceState({ event: null }, "", u.pathname + u.search + u.hash);
+  } catch (e) { console.warn("replaceState failed:", e); }
+  if (ALL.some(e => e.id === id)) openEv(id);
+  else toast("That event is no longer available");
+}
+
+/* Hardware / browser back button */
+window.addEventListener("popstate", ev => {
+  const id = ev.state && ev.state.event;
+  if (id) {
+    if (id !== openEvId) openEv(id, true);
+  } else {
+    closeEv(true);
+  }
+});
 
 /* ---------- BUY ---------- */
 function buy(id) {
@@ -1544,6 +1678,7 @@ function rOrg() {
         <div class="th" style="width:64px;height:64px">${e.img ? `<img src="${e.img}" loading="lazy" alt="">` : I("ticket")}</div>
         <div class="rb"><b>${esc(e.title)}</b><span>${fdate(e.date)}${ended(e) ? " · Ended" : ""}</span><span>${s} / ${n} sold · ${money(rev)}</span></div></div>
         <div class="acts">
+          <button class="btn s sm" onclick="shareEvent('${e.id}')">${I("share")}Share</button>
           <button class="btn s sm" onclick="sales('${e.id}')">${I("users")}Attendees</button>
           <button class="btn s sm" onclick="openEditor('${e.id}')">${I("edit")}Edit</button>
           <button class="btn d sm" onclick="del('${e.id}')" aria-label="Delete event">${I("trash")}</button>
@@ -1770,6 +1905,7 @@ $("#list").innerHTML = `<div class="sk">${skeleton(5)}</div>`;
     await loadMe();
     await loadAll();
     go("home");
+    openFromUrl();
     sb.auth.onAuthStateChange(async (event) => {
       if (!["SIGNED_IN", "SIGNED_OUT", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) return;
       try {
