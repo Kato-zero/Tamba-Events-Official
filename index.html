@@ -24,7 +24,7 @@ button{cursor:pointer}
 h1.lt{font-size:2.1rem;font-weight:800;letter-spacing:-.03em;padding:calc(var(--st) + 22px) 0 8px}
 .h2{font-size:1.25rem;font-weight:700;letter-spacing:-.02em;margin:18px 0 12px}
 
-/* ===== NEW: brand row with logo ===== */
+/* ===== brand row with logo ===== */
 .brand{display:flex;align-items:center;gap:12px;padding:calc(var(--st) + 22px) 0 8px}
 .brand h1.lt{padding:0}
 .brand .logo{width:110px;height:110px;border-radius:12px;object-fit:contain;flex:0 0 auto;display:block}
@@ -185,19 +185,22 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .scn .scr #sn{margin-top:10px}
 .scn .scgo{position:absolute;left:0;right:0;margin:0 auto;width:fit-content;min-width:150px;top:calc(36% + min(36vw,150px) + 22px);z-index:2}
 .scn .scgo.stop{background:#fff;color:var(--rd)}
+
+/* ===== featured status badges ===== */
+.fbadge-pill{display:inline-block;margin-top:4px;font-size:.66rem;font-weight:700;padding:3px 8px;border-radius:99px}
+.fbadge-pending{background:rgba(255,149,0,.16);color:#a55a00}
+.fbadge-approved{background:rgba(52,199,89,.18);color:#1a7f37}
+.fbadge-rejected{background:rgba(255,59,48,.12);color:#c4281e}
+/* ================================== */
 </style>
 </head>
 <body>
 <div class="app">
   <section class="pg on" id="p-home">
-
-    <!-- ===== CHANGE: logo + site name ===== -->
     <div class="brand">
       <img class="logo" src="https://i.postimg.cc/C548QtYX/a-clean-minimalist-vector-logo-design-on-a-white.png" alt="Tamba.Events logo" onerror="this.remove()">
       <h1 class="lt">Tamba.Events</h1>
     </div>
-    <!-- ==================================== -->
-
     <h2 class="lt">Explore Events &amp; Get That Ticket</h2>
     <div class="sbar">
       <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input id="q" type="search" placeholder="Search events, venues or cities" autocomplete="off"></div>
@@ -233,22 +236,22 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
   ✓ Real Lipila mobile-money payments
   ✓ Event sharing (native share, copy link, WhatsApp)
   ✓ Deep links: ?event=<id> opens the event; back button closes it
+  ✓ Featured approval workflow (organiser request → admin approve/decline)
   ===================================*/
 
 const SUPABASE_URL = "https://grbcwerpexwzttdwukjv.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdyYmN3ZXJwZXh3enR0ZHd1a2p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzMDU5NzYsImV4cCI6MjEwNjg4MTk3Nn0._eH8J9Y-4I20UHHCsWmvbfDJmysNFGM9ErEGxb6Cncw";
-const USE_LOCAL = false;               // ← switched to real Supabase
+const USE_LOCAL = false;
 const sb = USE_LOCAL ? localSb() : supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ---------- PAYMENTS (Lipila mobile money via /api) ---------- */
 const PAY = {
-  create: "/api/createpayment",   // POST
-  status: "/api/checkpayment",    // GET ?referenceId=
-  pollMs: 4000,                   // how often to ask Lipila for the status
-  timeoutMs: 120000               // give the customer 2 minutes to approve
+  create: "/api/createpayment",
+  status: "/api/checkpayment",
+  pollMs: 4000,
+  timeoutMs: 120000
 };
 
-/* Normalise whatever Lipila sends back into paid | failed | pending */
 function paymentState(resp) {
   const root = resp && typeof resp === "object" ? resp : {};
   const body = root.data && typeof root.data === "object" ? root.data : root;
@@ -267,7 +270,6 @@ function paymentState(resp) {
   return "pending";
 }
 
-/* Ask the backend to push a mobile-money prompt to the customer's phone */
 async function startPayment({ amount, name, phone }) {
   let r;
   try {
@@ -287,7 +289,6 @@ async function startPayment({ amount, name, phone }) {
   return data.referenceId;
 }
 
-/* Poll /api/checkpayment until the transaction settles or times out */
 async function pollPayment(referenceId, onUpdate) {
   const started = Date.now();
   let tries = 0;
@@ -347,7 +348,7 @@ let cat = "", city = "", dateF = "", priceF = "", q = "", psT = null, chartInst 
 let qSearchTimeout = null;
 
 /* ---------- PLACEHOLDER EVENTS ---------- */
-const SHOW_SAMPLES = false;             // real events come from Supabase now
+const SHOW_SAMPLES = false;
 const dAhead = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10) };
 const art = (a, b) => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="900" height="600" fill="url(#g)"/></svg>`);
 const SAMPLES = [
@@ -386,17 +387,11 @@ function localSb() {
   const wr = (t, v) => {
     try {
       const s = JSON.stringify(v);
-      if (s.length > 5242880) {
-        console.warn("Skipping write - data too large");
-        return false;
-      }
+      if (s.length > 5242880) { console.warn("Skipping write - data too large"); return false; }
       localStorage.setItem(K + t, s);
       return true;
     } catch (e) {
-      if (e.name === "QuotaExceededError") {
-        console.warn("localStorage quota exceeded");
-        return false;
-      }
+      if (e.name === "QuotaExceededError") { console.warn("localStorage quota exceeded"); return false; }
       console.warn("localStorage write failed:", e);
       return false;
     }
@@ -427,11 +422,8 @@ function localSb() {
       upsert(p) { op = "upsert"; pl = p; return b },
       delete() { op = "delete"; return b },
       then(res, rej) {
-        try {
-          return Promise.resolve(run()).then(res, rej);
-        } catch (e) {
-          return Promise.reject(e);
-        }
+        try { return Promise.resolve(run()).then(res, rej); }
+        catch (e) { return Promise.reject(e); }
       }
     };
     function run() {
@@ -522,12 +514,8 @@ function shrink(f, max, cb) {
       const cx = c.getContext("2d");
       if (!cx) return toast("Canvas rendering failed");
       cx.drawImage(im, 0, 0, c.width, c.height);
-      try {
-        cb(c.toDataURL("image/jpeg", .8));
-      } catch (e) {
-        console.error("Image encoding error:", e);
-        toast("Could not encode image");
-      }
+      try { cb(c.toDataURL("image/jpeg", .8)); }
+      catch (e) { console.error("Image encoding error:", e); toast("Could not encode image"); }
     };
     im.onerror = () => toast("Could not read that image");
     im.src = x.target.result;
@@ -554,9 +542,7 @@ function sheet(html) {
     if (d) return;
     d = 1;
     o.classList.add("out");
-    setTimeout(() => {
-      try { o.remove() } catch { }
-    }, 230);
+    setTimeout(() => { try { o.remove() } catch { } }, 230);
   };
   o.onclick = e => {
     if (e.target === o || e.target.closest("[data-x]")) o.close();
@@ -579,18 +565,15 @@ function loadSaved() {
   try {
     SAVED = JSON.parse(localStorage.getItem("tz_saved") || "[]");
     if (!Array.isArray(SAVED)) SAVED = [];
-  } catch {
-    SAVED = [];
-  }
+  } catch { SAVED = []; }
 }
 
 const isSaved = id => SAVED.includes(id);
 function toggleSave(id) {
   const was = isSaved(id);
   SAVED = was ? SAVED.filter(x => x !== id) : [...SAVED, id];
-  try {
-    localStorage.setItem("tz_saved", JSON.stringify(SAVED));
-  } catch (e) {
+  try { localStorage.setItem("tz_saved", JSON.stringify(SAVED)); }
+  catch (e) {
     console.warn("Could not save favorites:", e);
     toast("Could not save this event");
     SAVED = was ? [...SAVED, id] : SAVED.filter(x => x !== id);
@@ -669,10 +652,8 @@ function openAuth(after, startMode = "login") {
       if (pw.length < 8) return toast("Password must be at least 8 characters");
       btn.disabled = true;
       try {
-        // Send name / phone / role via user metadata — a DB trigger creates the profile row.
         const { data, error } = await sb.auth.signUp({
-          email: e,
-          password: pw,
+          email: e, password: pw,
           options: { data: { name: n, phone: sanitizePhone(p), role } }
         });
         if (error) { btn.disabled = false; return toast(error.message) }
@@ -802,9 +783,7 @@ function openFilters() {
     m.querySelectorAll(".chip").forEach(b => b.onclick = () => {
       const k = b.dataset.k, v = b.dataset.v;
       if (k === "c") cat = v; else if (k === "y") city = v; else if (k === "d") dateF = v; else priceF = v;
-      draw();
-      updateFbtn();
-      rHome();
+      draw(); updateFbtn(); rHome();
     });
     g("#fr").onclick = () => { cat = city = dateF = priceF = ""; draw(); updateFbtn(); rHome() };
     g("#fd").onclick = () => m.close();
@@ -869,12 +848,11 @@ function rHome() {
     return matchesDate(e) && matchesPrice(e);
   }).sort((a, b) => ended(a) - ended(b) || String(a.date).localeCompare(String(b.date)));
 
+  // Only approved events appear in the Featured carousel.
   const fe = ALL.filter(e => e.featured && !ended(e));
   $("#feat").innerHTML = !filt && fe.length ? `<h2 class="h2">Featured</h2><div class="car">${fe.map(fc).join("")}</div>` : "";
   $("#hl").textContent = filt ? `${l.length} result${l.length === 1 ? "" : "s"}` : "Upcoming";
-  $("#list").innerHTML = l.length
-    ? l.map(row).join("")
-    : `<div class="emp">${I("search")}<p>No events found</p></div>`;
+  $("#list").innerHTML = l.length ? l.map(row).join("") : `<div class="emp">${I("search")}<p>No events found</p></div>`;
 }
 
 /* ---------- EVENT DETAIL ---------- */
@@ -914,13 +892,9 @@ function closeEv(fromHistory) {
   const wasOpen = $("#detail").classList.contains("on");
   $("#detail").classList.remove("on");
   openEvId = null;
-  if (psT !== null) {
-    clearInterval(psT);
-    psT = null;
-  }
+  if (psT !== null) { clearInterval(psT); psT = null; }
   const pst = document.getElementById("pst");
   if (pst) pst.querySelectorAll(".psl").forEach(x => x.onclick = null);
-  // If we pushed an "?event=" entry, step back so the URL matches the view.
   if (!fromHistory && wasOpen && history.state && history.state.event) {
     history.back();
   }
@@ -959,15 +933,10 @@ function initPS(root) {
   const play = () => {
     clearInterval(psT);
     if (sl.length <= 1 || isScrolling) return;
-    psT = setInterval(() => {
-      if (!isScrolling) to((act() + 1) % sl.length);
-    }, 3800);
+    psT = setInterval(() => { if (!isScrolling) to((act() + 1) % sl.length); }, 3800);
   };
 
-  const scrollHandler = () => {
-    act();
-    clearInterval(psT);
-  };
+  const scrollHandler = () => { act(); clearInterval(psT); };
   const pointerStartHandler = () => { isScrolling = true; clearInterval(psT) };
   const pointerEndHandler = () => { isScrolling = false; psT = setTimeout(play, 6000) };
 
@@ -993,11 +962,8 @@ function pushEventUrl(id) {
   if (history.state && history.state.event === id) return;
   const u = new URL(location.href);
   u.searchParams.set("event", id);
-  try {
-    history.pushState({ event: id }, "", u.toString());
-  } catch (e) {
-    console.warn("pushState failed:", e);
-  }
+  try { history.pushState({ event: id }, "", u.toString()); }
+  catch (e) { console.warn("pushState failed:", e); }
 }
 
 async function copyText(t) {
@@ -1006,9 +972,7 @@ async function copyText(t) {
       await navigator.clipboard.writeText(t);
       return true;
     }
-  } catch (e) {
-    console.warn("Clipboard API failed:", e);
-  }
+  } catch (e) { console.warn("Clipboard API failed:", e); }
   try {
     const ta = document.createElement("textarea");
     ta.value = t;
@@ -1020,10 +984,7 @@ async function copyText(t) {
     const ok = document.execCommand("copy");
     ta.remove();
     return ok;
-  } catch (e) {
-    console.warn("Copy fallback failed:", e);
-    return false;
-  }
+  } catch (e) { console.warn("Copy fallback failed:", e); return false; }
 }
 
 function shareEvent(id) {
@@ -1038,9 +999,7 @@ function shareEvent(id) {
         openShareSheet(e, url, text);
       });
       return;
-    } catch (err) {
-      console.warn("navigator.share failed:", err);
-    }
+    } catch (err) { console.warn("navigator.share failed:", err); }
   }
   openShareSheet(e, url, text);
 }
@@ -1066,12 +1025,8 @@ function openShareSheet(e, url, text) {
       window.open(`https://wa.me/?text=${encodeURIComponent(text + "\n\n" + url)}`, "_blank", "noopener");
       m.close();
     } else {
-      try {
-        await navigator.share({ title: e.title, text, url });
-        m.close();
-      } catch (err) {
-        if (!err || err.name !== "AbortError") toast("Could not open sharing");
-      }
+      try { await navigator.share({ title: e.title, text, url }); m.close(); }
+      catch (err) { if (!err || err.name !== "AbortError") toast("Could not open sharing"); }
     }
   });
 
@@ -1079,28 +1034,21 @@ function openShareSheet(e, url, text) {
   if (inp) inp.onclick = () => inp.select();
 }
 
-/* Open the event named in ?event=... on first load */
 function openFromUrl() {
   const id = new URLSearchParams(location.search).get("event");
   if (!id) return;
-  // Leave a clean entry behind so the back button returns here, not off-site.
   const u = new URL(location.href);
   u.searchParams.delete("event");
-  try {
-    history.replaceState({ event: null }, "", u.pathname + u.search + u.hash);
-  } catch (e) { console.warn("replaceState failed:", e); }
+  try { history.replaceState({ event: null }, "", u.pathname + u.search + u.hash); }
+  catch (e) { console.warn("replaceState failed:", e); }
   if (ALL.some(e => e.id === id)) openEv(id);
   else toast("That event is no longer available");
 }
 
-/* Hardware / browser back button */
 window.addEventListener("popstate", ev => {
   const id = ev.state && ev.state.event;
-  if (id) {
-    if (id !== openEvId) openEv(id, true);
-  } else {
-    closeEv(true);
-  }
+  if (id) { if (id !== openEvId) openEv(id, true); }
+  else { closeEv(true); }
 });
 
 /* ---------- BUY ---------- */
@@ -1167,15 +1115,12 @@ function buy(id) {
         let referenceId = "";
 
         try {
-          /* ---- 1. Take the money first (free tickets skip straight through) ---- */
           if (tot > 0) {
             referenceId = await startPayment({ amount: tot, name: nm.trim(), phone: ph });
-
             btn.innerHTML = '<span class="spin"></span> Approve on your phone…';
             const paid = await pollPayment(referenceId, st => {
               if (st === "pending") btn.innerHTML = '<span class="spin"></span> Waiting for confirmation…';
             });
-
             if (paid.status !== "paid") {
               draw();
               return toast(paid.status === "failed"
@@ -1185,7 +1130,6 @@ function buy(id) {
             btn.innerHTML = '<span class="spin"></span> Issuing ticket…';
           }
 
-          /* ---- 2. Reserve the stock ---- */
           const { error: be } = await sb.rpc("buy_ticket", { p_event_id: e.id, p_tier_name: t.name, p_qty: qty });
           if (be) {
             draw();
@@ -1194,7 +1138,6 @@ function buy(id) {
               : be.message);
           }
 
-          /* ---- 3. Save the ticket ---- */
           const tk = {
             id: uid("tk_"),
             code: "TZ-" + Math.random().toString(36).slice(2, 10).toUpperCase(),
@@ -1241,21 +1184,9 @@ function showTicket(t, fresh) {
   const qrDiv = m.querySelector("#qr");
   try {
     if (typeof QRCode !== "undefined") {
-      new QRCode(qrDiv, {
-        text: t.code,
-        width: 280,
-        height: 280,
-        colorDark: "#000000",
-        colorLight: "#ffffff",
-        correctLevel: QRCode.CorrectLevel.H
-      });
-    } else {
-      qrDiv.textContent = t.code;
-    }
-  } catch (e) {
-    console.warn("QR render failed:", e);
-    qrDiv.textContent = t.code;
-  }
+      new QRCode(qrDiv, { text: t.code, width: 280, height: 280, colorDark: "#000000", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.H });
+    } else { qrDiv.textContent = t.code; }
+  } catch (e) { console.warn("QR render failed:", e); qrDiv.textContent = t.code; }
 
   m.querySelector("#gift").onclick = () => giftTicket(t, m);
   const b = m.querySelector("#vt");
@@ -1321,10 +1252,7 @@ async function delTix(id) {
     await loadAll();
     rTix();
     toast("Ticket deleted");
-  } catch (e) {
-    console.error("Delete ticket error:", e);
-    toast("Failed to delete ticket");
-  }
+  } catch (e) { console.error("Delete ticket error:", e); toast("Failed to delete ticket"); }
 }
 
 /* ---------- CHECK IN ---------- */
@@ -1365,10 +1293,7 @@ async function checkCode(code, evId) {
     if (t.event_id !== evId) return { s: "wrong", t };
     if (adm(t) >= t.qty) return { s: "used", t };
     return { s: "ok", t };
-  } catch (e) {
-    console.error("checkCode error:", e);
-    return { s: "err", msg: "Could not check ticket" };
-  }
+  } catch (e) { console.error("checkCode error:", e); return { s: "err", msg: "Could not check ticket" }; }
 }
 
 async function admit(id, n) {
@@ -1383,10 +1308,7 @@ async function admit(id, n) {
     const { error } = await sb.from("tickets").update(u).eq("id", id);
     if (error) return { err: error.message };
     return { s: "done", t: { ...f, ...u }, n };
-  } catch (e) {
-    console.error("admit error:", e);
-    return { err: "An error occurred" };
-  }
+  } catch (e) { console.error("admit error:", e); return { err: "An error occurred" }; }
 }
 
 const res = (c, h, body, extra = "") => `<div class="res ${c}"><b>${h}</b><span>${body}</span>${extra}</div>`;
@@ -1441,10 +1363,7 @@ async function refreshRoster() {
   try {
     const { data } = await sb.from("tickets").select("*").eq("event_id", chEv);
     chRows = data || [];
-  } catch (e) {
-    console.error("refreshRoster error:", e);
-    return;
-  }
+  } catch (e) { console.error("refreshRoster error:", e); return; }
   drawRoster();
 }
 
@@ -1555,10 +1474,7 @@ async function openScan() {
     try {
       cx.drawImage(v, 0, 0, w, h);
       return cx.getImageData(0, 0, w, h);
-    } catch (e) {
-      console.warn("Canvas draw error:", e);
-      return null;
-    }
+    } catch (e) { console.warn("Canvas draw error:", e); return null; }
   };
 
   const decodeWithJsQR = () => {
@@ -1569,9 +1485,7 @@ async function openScan() {
       try {
         const q = jsQR(img.data, img.width, img.height, { inversionAttempts: "attemptBoth" });
         if (q && q.data) return q.data;
-      } catch (e) {
-        console.warn("jsQR decode error:", e);
-      }
+      } catch (e) { console.warn("jsQR decode error:", e); }
     }
     return "";
   };
@@ -1688,9 +1602,15 @@ function rOrg() {
       const s = (e.tiers || []).reduce((a, t) => a + t.sold, 0);
       const n = (e.tiers || []).reduce((a, t) => a + t.qty, 0);
       const rev = (e.tiers || []).reduce((a, t) => a + t.sold * t.price, 0);
+      const fstat = e.featured_status || (e.featured ? "approved" : "none");
+      const fbadge =
+        fstat === "pending"  ? `<span class="fbadge-pill fbadge-pending">⏳ Featured: pending</span>` :
+        fstat === "approved" ? `<span class="fbadge-pill fbadge-approved">★ Featured</span>` :
+        fstat === "rejected" ? `<span class="fbadge-pill fbadge-rejected">✗ Featured: declined</span>` :
+        "";
       return `<div class="ocard"><div class="top" onclick="closeEv();openEv('${e.id}')">
         <div class="th" style="width:64px;height:64px">${e.img ? `<img src="${e.img}" loading="lazy" alt="">` : I("ticket")}</div>
-        <div class="rb"><b>${esc(e.title)}</b><span>${fdate(e.date)}${ended(e) ? " · Ended" : ""}</span><span>${s} / ${n} sold · ${money(rev)}</span></div></div>
+        <div class="rb"><b>${esc(e.title)}</b><span>${fdate(e.date)}${ended(e) ? " · Ended" : ""}</span><span>${s} / ${n} sold · ${money(rev)}</span>${fbadge}</div></div>
         <div class="acts">
           <button class="btn s sm" onclick="shareEvent('${e.id}')">${I("share")}Share</button>
           <button class="btn s sm" onclick="sales('${e.id}')">${I("users")}Attendees</button>
@@ -1724,9 +1644,7 @@ function drawOrgChart() {
         }
       }
     });
-  } catch (e) {
-    console.error("Chart init error:", e);
-  }
+  } catch (e) { console.error("Chart init error:", e); }
 }
 
 async function sales(id) {
@@ -1740,10 +1658,7 @@ async function sales(id) {
        ${(l || []).length
         ? `<div class="grp">${l.map(t => `<div class="gi"><span>${esc(t.buyer_name)}<small>${esc(t.buyer_email)} · ${esc(t.buyer_phone)}</small></span><span class="sp">${t.qty} × ${esc(t.tier)}<small>${esc(t.code)}${t.used ? " ✓" : adm(t) > 0 ? " · " + adm(t) + "/" + t.qty + " in" : ""}</small></span></div>`).join("")}</div>`
         : `<p class="hint">No bookings yet.</p>`}`);
-  } catch (e) {
-    console.error("sales error:", e);
-    toast("Could not load attendees");
-  }
+  } catch (e) { console.error("sales error:", e); toast("Could not load attendees"); }
 }
 
 async function del(id) {
@@ -1757,10 +1672,7 @@ async function del(id) {
     await loadAll();
     rOrg();
     rHome();
-  } catch (e) {
-    console.error("del error:", e);
-    toast("Could not delete event");
-  }
+  } catch (e) { console.error("del error:", e); toast("Could not delete event"); }
 }
 
 function openEditor(id) {
@@ -1768,15 +1680,26 @@ function openEditor(id) {
     if (!isOrg()) return toast("Only organiser accounts can create events");
     const e = id ? MINE.find(x => x.id === id) : null;
     if (id && !e) return toast("Event not found");
+
     const D = e
-      ? { title: e.title, category: e.category, city: e.city, venue: e.venue, date: e.date, time: e.time, desc: e.description || "", tagline: e.tagline || "", featured: !!e.featured }
-      : { title: "", category: "", city: "", venue: "", date: "", time: "", desc: "", tagline: "", featured: false };
+      ? { title: e.title, category: e.category, city: e.city, venue: e.venue, date: e.date, time: e.time,
+          desc: e.description || "", tagline: e.tagline || "", featured: !!e.featured,
+          featuredStatus: e.featured_status || (e.featured ? "approved" : "none") }
+      : { title: "", category: "", city: "", venue: "", date: "", time: "",
+          desc: "", tagline: "", featured: false, featuredStatus: "none" };
+
     const T = e ? e.tiers.map(t => ({ ...t })) : [{ name: "General Admission", price: "", qty: "", sold: 0 }];
     const PR = e ? (e.presenters || []).map(x => ({ ...x })) : [];
     let img = e ? e.img || "" : "";
     const m = sheet(""), g = s => m.querySelector(s);
 
     const draw = () => {
+      const featHint =
+        D.featuredStatus === "approved" ? "✓ Approved — your event is featured on Explore." :
+        D.featuredStatus === "pending"  ? "⏳ Awaiting admin approval." :
+        D.featuredStatus === "rejected" ? "✗ Request was declined. Tick to request again." :
+        "Featured events appear in the carousel at the top of Explore.";
+
       g(".sh").innerHTML = `<div class="grab"></div>` + sh(e ? "Edit event" : "New event") + `
         <div class="fld"><label>Event name</label><input class="in" data-k="title" value="${esc(D.title)}" placeholder="e.g. Lusaka Comedy Night"></div>
         <div class="two">
@@ -1798,7 +1721,18 @@ function openEditor(id) {
           <div class="pf"><input class="in" data-p="${i}" data-f="name" placeholder="Name" value="${esc(x.name)}"><input class="in" data-p="${i}" data-f="role" placeholder="Role (e.g. Headliner)" value="${esc(x.role || "")}"></div>
           <button class="btn d sm" data-pr="${i}" aria-label="Remove presenter">${I("trash")}</button></div>`).join("")}
         <button class="btn s b" id="ap" style="margin-bottom:8px">${I("plus")}Add presenter</button>
-        <label class="chk"><input type="checkbox" data-k="featured" ${D.featured ? "checked" : ""}>Feature on the Explore tab</label>
+
+        <div class="fld" style="margin-top:12px">
+          <label>Explore tab featuring</label>
+          <label class="chk">
+            <input type="checkbox" id="featreq"
+              ${D.featuredStatus === "pending" || D.featuredStatus === "approved" ? "checked" : ""}
+              ${D.featuredStatus === "approved" ? "disabled" : ""}>
+            Request to be featured on Explore
+          </label>
+          <p class="hint">${featHint}</p>
+        </div>
+
         <h2 class="h2" style="margin-top:8px">Tickets</h2>
         <p class="sub">Use 0 for free tickets. A ${fee}% platform fee applies.</p>
         ${T.map((t, i) => `<div class="trow">
@@ -1844,6 +1778,28 @@ function openEditor(id) {
       }
       const btn = g("#sv");
       btn.disabled = true;
+
+      /* ---- Featured approval workflow ---- */
+      const wantsFeatured = !!(m.querySelector("#featreq") && m.querySelector("#featreq").checked);
+      const prevStatus = D.featuredStatus;
+      let featuredStatus = prevStatus;
+      let featured = !!D.featured;
+
+      if (prevStatus === "approved") {
+        featured = true;
+        featuredStatus = "approved";
+      } else if (wantsFeatured) {
+        featured = false;                  // never true until admin approves
+        featuredStatus = "pending";
+      } else {
+        featured = false;
+        featuredStatus = "none";
+      }
+
+      const requestedAt = (featuredStatus === "pending" && prevStatus !== "pending")
+        ? new Date().toISOString()
+        : (e && e.featured_requested_at) || null;
+
       try {
         const ev = {
           id: e ? e.id : uid("ev_"),
@@ -1858,7 +1814,9 @@ function openEditor(id) {
           description: D.desc.trim(),
           img,
           tiers: T.map(t => ({ name: t.name.trim(), price: +t.price || 0, qty: +t.qty, sold: t.sold || 0 })),
-          featured: D.featured,
+          featured,
+          featured_status: featuredStatus,
+          featured_requested_at: requestedAt,
           tagline: D.tagline.trim(),
           presenters: PR.filter(x => String(x.name).trim()).map(x => ({ name: x.name.trim(), role: (x.role || "").trim(), img: x.img || "" })),
           status: "live"
@@ -1892,6 +1850,7 @@ function rMe() {
          <div class="gi">${I("user")}<span>Account type</span><span class="sp">${me.role === "organiser" ? "Organiser" : me.role === "admin" ? "Admin" : "Customer"}</span></div>
        </div>
        ${isOrg() ? "" : `<p class="hint c">Want to sell tickets? Create a separate organiser account.</p>`}
+       ${me.role === "admin" ? `<div id="adminFeat"></div>` : ""}
        <button class="btn d b" style="margin-top:20px" id="so">Sign out</button>`
     : `<div class="emp">${I("user")}<p>Sign in to book tickets and manage events.</p>
        <button class="btn" style="margin-top:16px" onclick="openAuth()">Sign in or create account</button></div>`;
@@ -1908,6 +1867,62 @@ function rMe() {
       toast("Signed out");
     }
   };
+
+  if (me && me.role === "admin") loadAdminFeatured();
+}
+
+async function loadAdminFeatured() {
+  const box = $("#adminFeat");
+  if (!box) return;
+  box.innerHTML = `<h2 class="h2">Feature requests</h2><div class="sk"><div class="sk-line"></div></div>`;
+  let data = [];
+  try {
+    const { data: rows } = await sb
+      .from("events")
+      .select("*")
+      .eq("featured_status", "pending")
+      .order("created_at", { ascending: false });
+    data = rows || [];
+  } catch (e) { console.warn("loadAdminFeatured:", e); }
+
+  if (!data.length) {
+    box.innerHTML = `<h2 class="h2">Feature requests</h2><p class="hint c">No pending requests.</p>`;
+    return;
+  }
+  box.innerHTML = `<h2 class="h2">Feature requests (${data.length})</h2>` +
+    data.map(e => `
+      <div class="ocard">
+        <div class="top" onclick="closeEv();openEv('${esc(e.id)}')">
+          <div class="th" style="width:64px;height:64px">${e.img ? `<img src="${e.img}" loading="lazy" alt="">` : I("ticket")}</div>
+          <div class="rb">
+            <b>${esc(e.title)}</b>
+            <span>${fdate(e.date)} · ${esc(e.city || "")}</span>
+            <span>by ${esc(e.owner_name || "Organiser")}</span>
+          </div>
+        </div>
+        <div class="acts">
+          <button class="btn sm" data-approve="${esc(e.id)}">✓ Approve</button>
+          <button class="btn d sm" data-reject="${esc(e.id)}">✗ Decline</button>
+        </div>
+      </div>`).join("");
+
+  box.querySelectorAll("[data-approve]").forEach(b => b.onclick = () => reviewFeatured(b.dataset.approve, "approved"));
+  box.querySelectorAll("[data-reject]").forEach(b => b.onclick = () => reviewFeatured(b.dataset.reject, "rejected"));
+}
+
+async function reviewFeatured(id, status) {
+  const updates = {
+    featured: status === "approved",
+    featured_status: status,
+    featured_reviewed_at: new Date().toISOString(),
+    featured_reviewed_by: me ? me.id : null
+  };
+  const { error } = await sb.from("events").update(updates).eq("id", id);
+  if (error) return toast(error.message);
+  toast(status === "approved" ? "Event approved for Explore" : "Request declined");
+  await loadAll();
+  loadAdminFeatured();
+  if (tab === "home") rHome();
 }
 
 /* ---------- INIT ---------- */
@@ -1931,9 +1946,7 @@ $("#list").innerHTML = `<div class="sk">${skeleton(5)}</div>`;
         else if (tab === "org") rOrg();
         else if (tab === "chk") rChk();
         else if (tab === "me") rMe();
-      } catch (e) {
-        console.error("Auth state change error:", e);
-      }
+      } catch (e) { console.error("Auth state change error:", e); }
     });
   } catch (e) {
     console.error("Init error:", e);
