@@ -192,6 +192,17 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .fbadge-approved{background:rgba(52,199,89,.18);color:#1a7f37}
 .fbadge-rejected{background:rgba(255,59,48,.12);color:#c4281e}
 /* ================================== */
+
+/* ===== payouts ===== */
+.pay-card{background:var(--g1);border-radius:16px;padding:16px;margin:12px 0}
+.pay-card small{color:var(--t2);font-size:.75rem;font-weight:600}
+.pay-card b{display:block;font-size:1.4rem;margin:4px 0 10px}
+.pay-status{display:inline-block;font-size:.66rem;font-weight:700;padding:3px 8px;border-radius:99px}
+.ps-requested,.ps-verifying{background:rgba(255,149,0,.16);color:#a55a00}
+.ps-approved,.ps-paid{background:rgba(52,199,89,.18);color:#1a7f37}
+.ps-rejected{background:rgba(255,59,48,.12);color:#c4281e}
+.okicon{width:56px;height:56px;border-radius:50%;background:rgba(52,199,89,.18);color:#1a7f37;display:grid;place-items:center;margin:8px auto 12px;font-size:1.6rem;font-weight:700}
+/* ==================== */
 </style>
 </head>
 <body>
@@ -237,6 +248,7 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
   ✓ Event sharing (native share, copy link, WhatsApp)
   ✓ Deep links: ?event=<id> opens the event; back button closes it
   ✓ Featured approval workflow (organiser request → admin approve/decline)
+  ✓ Organiser payout requests (balance, request, status history)
   ===================================*/
 
 const SUPABASE_URL = "https://grbcwerpexwzttdwukjv.supabase.co";
@@ -715,9 +727,11 @@ async function loadAll() {
       ]);
       MINE = my || [];
       TIX = tk || [];
+      await loadPayouts();
     } else {
       MINE = [];
       TIX = [];
+      PAYOUTS = [];
     }
   } catch (e) {
     console.error("loadAll error:", e);
@@ -1597,6 +1611,14 @@ function rOrg() {
       <div class="gi"><span>Platform fee (${fee}%)</span><span class="sp" style="color:var(--t2)">-${money(Math.round(gross * fee / 100))}</span></div>
       <div class="gi"><span><b>Your payout</b></span><span class="sp" style="color:var(--ac);font-weight:700">${money(yourShare)}</span></div>
     </div>
+    <div class="pay-card">
+      <small>Available for payout</small>
+      <b>${money(payoutBalance())}</b>
+      <button class="btn sm" onclick="openPayoutRequest()" ${payoutBalance() <= 0 ? "disabled" : ""}>${I("ticket")}Request payout</button>
+    </div>
+    ${PAYOUTS.length ? `<h2 class="h2">Payout requests</h2><div class="grp">${PAYOUTS.map(p =>
+      `<div class="gi"><span>${money(p.amount)}<small>${esc(p.network)} · ${esc(p.phone)} · ${fdate((p.created_at || "").slice(0, 10))}</small></span>
+       <span class="sp"><span class="pay-status ps-${esc(p.status)}">${PAY_LABEL[p.status] || esc(p.status)}</span></span></div>`).join("")}</div>` : ""}
     <button class="btn b" style="margin:12px 0 4px" onclick="openEditor()">${I("plus")}New event</button>
     ${MINE.length ? MINE.map(e => {
       const s = (e.tiers || []).reduce((a, t) => a + t.sold, 0);
@@ -1838,6 +1860,110 @@ function openEditor(id) {
   });
 }
 
+/* ---------- PAYOUTS ---------- */
+let PAYOUTS = [];
+const PAY_LABEL = { requested: "Requested", verifying: "Verifying", approved: "Approved", paid: "Paid", rejected: "Declined" };
+
+async function loadPayouts() {
+  if (!me) { PAYOUTS = []; return; }
+  try {
+    const { data } = await sb.from("payouts").select("*")
+      .eq("organiser_id", me.id).order("created_at", { ascending: false });
+    PAYOUTS = data || [];
+  } catch (e) {
+    console.warn("loadPayouts error:", e);
+    PAYOUTS = [];
+  }
+}
+
+// Organiser's share of sales, minus every payout that has not been declined.
+// Pending requests reserve funds so the same money can't be requested twice.
+function payoutBalance() {
+  const gross = MINE.reduce((s, e) => s + (e.tiers || []).reduce((a, t) => a + t.sold * t.price, 0), 0);
+  const earned = Math.round(gross * (1 - fee / 100));
+  const committed = PAYOUTS.filter(p => p.status !== "rejected")
+    .reduce((s, p) => s + Number(p.amount || 0), 0);
+  return Math.max(0, earned - committed);
+}
+
+function openPayoutRequest() {
+  needAuth(() => {
+    if (!isOrg()) return toast("Organiser accounts only");
+    const bal = payoutBalance();
+    if (bal <= 0) return toast("No funds available to pay out yet");
+
+    const m = sheet(""), g = s => m.querySelector(s);
+    let amt = bal, net = "MTN", ph = me.phone || "", nm = me.name || "";
+
+    const draw = () => {
+      g(".sh").innerHTML = `<div class="grab"></div>` +
+        sh("Request payout", `Available to withdraw: <b style="color:var(--tx)">${money(bal)}</b>`) +
+        `<div class="fld"><label>Amount (ZMW)</label>
+           <input class="in" id="pa" type="number" inputmode="numeric" min="1" max="${bal}" value="${amt}"></div>
+         <div class="fld"><label>Mobile money network</label>
+           <div class="seg">${["MTN", "Airtel", "Zamtel"].map(p =>
+             `<button data-n="${p}" class="${p === net ? "on" : ""}">${p}</button>`).join("")}</div></div>
+         <div class="fld"><label>Mobile money number</label>
+           <input class="in" id="pp" type="tel" value="${esc(ph)}" placeholder="0977 123 456" autocomplete="tel"></div>
+         <div class="fld"><label>Account name</label>
+           <input class="in" id="pn" value="${esc(nm)}" autocomplete="name"></div>
+         <button class="btn b" id="psub">Submit payout request</button>
+         <p class="hint c">Payouts are verified before they are sent.</p>`;
+
+      g("#pa").oninput = e => { amt = e.target.value };
+      g("#pp").oninput = e => { ph = e.target.value };
+      g("#pn").oninput = e => { nm = e.target.value };
+      m.querySelectorAll("[data-n]").forEach(b => b.onclick = () => { net = b.dataset.n; draw() });
+      g("#psub").onclick = submitPayout;
+    };
+
+    async function submitPayout() {
+      const a = Math.floor(Number(amt));
+      if (!a || a < 1) return toast("Enter an amount");
+      if (a > bal) return toast("Amount is more than your available balance");
+      if (!isValidPhone(ph)) return toast("Enter a valid mobile money number");
+      if (nm.trim().length < 2) return toast("Enter the account name");
+
+      const btn = g("#psub");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>';
+
+      try {
+        const { error } = await sb.from("payouts").insert({
+          id: uid("po_"),
+          organiser_id: me.id,
+          organiser_name: me.name || "",
+          amount: a,
+          network: net,
+          phone: sanitizePhone(ph),
+          account_name: nm.trim(),
+          status: "requested"
+        });
+        if (error) throw error;
+        m.close();
+        await loadPayouts();
+        rOrg();
+        payoutConfirmed(a);
+      } catch (err) {
+        console.error("Payout request error:", err);
+        btn.disabled = false;
+        btn.textContent = "Submit payout request";
+        toast(err && err.message ? err.message : "Could not submit payout request");
+      }
+    }
+
+    draw();
+  });
+}
+
+function payoutConfirmed(a) {
+  sheet(`<div class="okicon">✓</div>` + sh("Payout requested") +
+    `<p class="desc">Your payout of <b style="color:var(--tx)">${money(a)}</b> will be disbursed to you after verification and within 2 working days.</p>
+     <button class="btn b" data-x style="margin-top:16px">Done</button>`);
+}
+
+/* ---------- END PAYOUTS ---------- */
+
 /* ---------- ACCOUNT ---------- */
 function rMe() {
   $("#ml").innerHTML = me
@@ -1862,6 +1988,7 @@ function rMe() {
       me = null;
       MINE = [];
       TIX = [];
+      PAYOUTS = [];
       closeEv();
       go("home");
       toast("Signed out");
