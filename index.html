@@ -96,6 +96,16 @@ button.gi{width:100%;text-align:left;cursor:pointer}
 .fld{margin-bottom:12px}.fld label{display:block;font-size:.78rem;color:var(--t2);font-weight:600;margin:0 0 6px 4px}
 .in{width:100%;background:var(--g1);border-radius:12px;padding:13px 14px;font-size:1rem;appearance:none;-webkit-appearance:none}
 textarea.in{min-height:90px;resize:vertical}
+
+/* ===== password field with eye toggle ===== */
+.pwd{position:relative}
+.pwd .in{padding-right:48px}
+.pwd .eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;display:grid;place-items:center;color:var(--t2);border-radius:10px}
+.pwd .eye:active{background:var(--g2)}
+.linkbtn{color:var(--ac);font-weight:600;font-size:.85rem;padding:6px 0;background:none;text-align:left}
+.linkbtn:active{opacity:.6}
+/* ========================================== */
+
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .seg{display:flex;background:var(--g1);border-radius:10px;padding:2px;margin-bottom:16px}
 .seg button{flex:1;padding:8px;border-radius:8px;font-weight:600;font-size:.88rem;color:var(--t2)}
@@ -283,6 +293,9 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
   ✓ Organiser payout requests (balance, request, status history)
   ✓ Static pages: Terms, Refunds, Privacy, Organiser Agreement, FAQ, About
   ✓ Deep links for pages: ?page=terms (and back button works)
+  ✓ Show/hide password toggle on all password fields
+  ✓ Forgot password + set-new-password flow (Supabase recovery)
+  ✓ "Change password" from the Account page
   ===================================*/
 
 const SUPABASE_URL = "https://grbcwerpexwzttdwukjv.supabase.co";
@@ -385,7 +398,9 @@ const P = {
   share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51a6 6 0 0 0 6.82 0M15.41 6.49a6 6 0 0 0-6.82 0"/>',
   link: '<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>',
-  scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10"/>'
+  scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/>'
 };
 const I = (n, c = "") => `<svg class="i ${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
 
@@ -533,7 +548,9 @@ function localSb() {
         return { error: null };
       },
       async signOut() { localStorage.removeItem(K + "session"); return {} },
-      onAuthStateChange() { }
+      onAuthStateChange() { },
+      async resetPasswordForEmail() { return { error: { message: "Password reset requires a live Supabase backend." } } },
+      async updateUser() { return { error: { message: "Password update requires a live Supabase backend." } } }
     }
   };
 }
@@ -654,26 +671,80 @@ async function loadMe() {
 
 const needAuth = cb => me ? cb() : openAuth(cb);
 
+function changePassword() {
+  if (!me) return openAuth();
+  openAuth(null, "reset");
+}
+
 function openAuth(after, startMode = "login") {
   let mode = startMode, role = "customer";
   const m = sheet(""), g = s => m.querySelector(s);
-  const f = (id, l, t, ph, ac) => `<div class="fld"><label>${l}</label><input class="in" id="${id}" type="${t}" placeholder="${ph}" autocomplete="${ac}"></div>`;
+
+  const f = (id, l, t, ph, ac) =>
+    `<div class="fld"><label>${l}</label><input class="in" id="${id}" type="${t}" placeholder="${ph}" autocomplete="${ac}"></div>`;
+
+  const fp = (id, l, ph, ac) =>
+    `<div class="fld"><label>${l}</label><div class="pwd"><input class="in" id="${id}" type="password" placeholder="${ph}" autocomplete="${ac}"><button type="button" class="eye" data-pw="${id}" aria-label="Show password">${I("eye")}</button></div></div>`;
+
+  const wirePwd = () => {
+    m.querySelectorAll("[data-pw]").forEach(b => {
+      b.onclick = () => {
+        const inp = g("#" + b.dataset.pw);
+        if (!inp) return;
+        const show = inp.type === "password";
+        inp.type = show ? "text" : "password";
+        b.innerHTML = I(show ? "eyeOff" : "eye");
+        b.setAttribute("aria-label", show ? "Hide password" : "Show password");
+        inp.focus();
+      };
+    });
+  };
+
   const draw = () => {
-    g(".sh").innerHTML = `<div class="grab"></div>` +
-      sh(mode === "login" ? "Welcome back" : "Create account",
-         mode === "login" ? "Sign in to book tickets and manage events." : "Join Tamba.Events in under a minute.") +
-      `<div class="seg"><button data-m="login" class="${mode === "login" ? "on" : ""}">Sign in</button><button data-m="register" class="${mode === "register" ? "on" : ""}">Create account</button></div>` +
-      (mode === "register"
-        ? f("rn", "Full name", "text", "Your full name", "name") +
-          f("re", "Email", "email", "you@example.com", "email") +
-          f("rp", "Phone (WhatsApp)", "tel", "0977 123 456", "tel") +
-          f("rw", "Password", "password", "At least 8 characters", "new-password") +
-          `<div class="fld"><label>I want to</label><div class="seg"><button data-r="customer" class="${role === "customer" ? "on" : ""}">Buy tickets</button><button data-r="organiser" class="${role === "organiser" ? "on" : ""}">Sell tickets</button></div><p class="hint">Customers book tickets. Organisers create and manage events.</p></div>`
-        : f("le", "Email", "email", "you@example.com", "email") + f("lw", "Password", "password", "Your password", "current-password")) +
-      `<button class="btn b" id="go" style="margin-top:6px">${mode === "login" ? "Sign in" : "Create account"}</button>
-       <p class="hint c" style="margin-top:12px">By continuing you agree to our
-         <a href="#" onclick="openPage('terms');return false" style="color:var(--ac)">Terms</a> and
-         <a href="#" onclick="openPage('refunds');return false" style="color:var(--ac)">Refund Policy</a>.</p>`;
+    const title = mode === "login" ? "Welcome back"
+                : mode === "register" ? "Create account"
+                : mode === "forgot" ? "Reset your password"
+                : "Set a new password";
+    const sub = mode === "login" ? "Sign in to book tickets and manage events."
+              : mode === "register" ? "Join Tamba.Events in under a minute."
+              : mode === "forgot" ? "Enter the email address on your account and we'll send you a link to reset your password."
+              : "Choose a new password for your account.";
+
+    let body = "";
+
+    if (mode === "login" || mode === "register") {
+      body += `<div class="seg"><button data-m="login" class="${mode === "login" ? "on" : ""}">Sign in</button><button data-m="register" class="${mode === "register" ? "on" : ""}">Create account</button></div>`;
+    }
+
+    if (mode === "forgot") {
+      body += f("fe", "Email", "email", "you@example.com", "email");
+      body += `<button class="btn b" id="go" style="margin-top:6px">Send reset link</button>
+               <p class="hint c" style="margin-top:14px"><button class="linkbtn" data-m="login">← Back to sign in</button></p>`;
+    } else if (mode === "reset") {
+      body += fp("np", "New password", "At least 8 characters", "new-password");
+      body += fp("cp", "Confirm password", "Re-enter your password", "new-password");
+      body += `<button class="btn b" id="go" style="margin-top:6px">Update password</button>`;
+    } else if (mode === "register") {
+      body += f("rn", "Full name", "text", "Your full name", "name");
+      body += f("re", "Email", "email", "you@example.com", "email");
+      body += f("rp", "Phone (WhatsApp)", "tel", "0977 123 456", "tel");
+      body += fp("rw", "Password", "At least 8 characters", "new-password");
+      body += `<div class="fld"><label>I want to</label><div class="seg"><button data-r="customer" class="${role === "customer" ? "on" : ""}">Buy tickets</button><button data-r="organiser" class="${role === "organiser" ? "on" : ""}">Sell tickets</button></div><p class="hint">Customers book tickets. Organisers create and manage events.</p></div>`;
+      body += `<button class="btn b" id="go" style="margin-top:6px">Create account</button>`;
+    } else {
+      body += f("le", "Email", "email", "you@example.com", "email");
+      body += fp("lw", "Password", "Your password", "current-password");
+      body += `<div style="text-align:right;margin:-4px 0 8px"><button class="linkbtn" data-m="forgot">Forgot password?</button></div>`;
+      body += `<button class="btn b" id="go">Sign in</button>`;
+    }
+
+    if (mode === "login" || mode === "register") {
+      body += `<p class="hint c" style="margin-top:12px">By continuing you agree to our
+        <a href="#" onclick="openPage('terms');return false" style="color:var(--ac)">Terms</a> and
+        <a href="#" onclick="openPage('refunds');return false" style="color:var(--ac)">Refund Policy</a>.</p>`;
+    }
+
+    g(".sh").innerHTML = `<div class="grab"></div>` + sh(title, sub) + body;
 
     m.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { mode = b.dataset.m; draw() });
     m.querySelectorAll("[data-r]").forEach(b => b.onclick = () => {
@@ -681,18 +752,66 @@ function openAuth(after, startMode = "login") {
       m.querySelectorAll("[data-r]").forEach(x => x.classList.toggle("on", x === b));
     });
     m.querySelectorAll("input").forEach(i => {
-      i.onkeydown = e => { if (e.key === "Enter") g("#go").click() };
+      i.onkeydown = e => { if (e.key === "Enter") { const gb = g("#go"); if (gb) gb.click() } };
     });
-    g("#go").onclick = submit;
+    wirePwd();
+    const goBtn = g("#go");
+    if (goBtn) goBtn.onclick = submit;
   };
 
-  const v = id => {
-    const el = g("#" + id);
-    return el ? el.value.trim() : "";
-  };
+  const v = id => { const el = g("#" + id); return el ? el.value.trim() : "" };
 
   async function submit() {
     const btn = g("#go");
+
+    if (mode === "forgot") {
+      const e = v("fe").toLowerCase();
+      if (!isValidEmail(e)) return toast("Enter a valid email address");
+      btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+      try {
+        const redirectTo = location.origin + location.pathname;
+        const { error } = await sb.auth.resetPasswordForEmail(e, { redirectTo });
+        btn.disabled = false; btn.textContent = "Send reset link";
+        if (error) return toast(error.message);
+        m.close();
+        toast("Check your email for the reset link");
+      } catch (err) {
+        btn.disabled = false; btn.textContent = "Send reset link";
+        console.error("resetPasswordForEmail error:", err);
+        toast("Could not send the reset email. Try again.");
+      }
+      return;
+    }
+
+    if (mode === "reset") {
+      const np = g("#np").value, cp = g("#cp").value;
+      if (np.length < 8) return toast("Password must be at least 8 characters");
+      if (np !== cp) return toast("Passwords do not match");
+      btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+      try {
+        const { error } = await sb.auth.updateUser({ password: np });
+        btn.disabled = false; btn.textContent = "Update password";
+        if (error) return toast(error.message);
+        m.close();
+        try { history.replaceState({}, "", location.pathname + location.search); } catch { }
+        toast("Password updated");
+        await loadMe();
+        await loadAll();
+        drawTabs();
+        if (tab === "home") rHome();
+        else if (tab === "tix") rTix();
+        else if (tab === "org") rOrg();
+        else if (tab === "chk") rChk();
+        else if (tab === "me") rMe();
+        if (after) after();
+      } catch (err) {
+        btn.disabled = false; btn.textContent = "Update password";
+        console.error("updateUser error:", err);
+        toast("Could not update password");
+      }
+      return;
+    }
+
     if (mode === "register") {
       const n = v("rn"), e = v("re").toLowerCase(), p = v("rp"), pw = g("#rw").value;
       if (n.length < 2) return toast("Enter your full name");
@@ -721,28 +840,30 @@ function openAuth(after, startMode = "login") {
         console.error("Signup error:", e);
         toast("An error occurred during signup");
       }
-    } else {
-      const e = v("le"), pw = g("#lw").value;
-      if (!isValidEmail(e)) return toast("Enter a valid email address");
-      if (!pw) return toast("Enter your password");
-      btn.disabled = true;
-      try {
-        const { error } = await sb.auth.signInWithPassword({ email: e, password: pw });
-        if (error) { btn.disabled = false; return toast(error.message) }
-        await loadMe();
-        if (!me) { btn.disabled = false; return toast("Could not load your profile") }
-        await loadAll();
-        drawTabs();
-        m.close();
-        toast("Welcome back!");
-        if (after) after(); else go(tab);
-      } catch (e) {
-        btn.disabled = false;
-        console.error("Login error:", e);
-        toast("An error occurred during login");
-      }
+      return;
+    }
+
+    const e = v("le"), pw = g("#lw").value;
+    if (!isValidEmail(e)) return toast("Enter a valid email address");
+    if (!pw) return toast("Enter your password");
+    btn.disabled = true;
+    try {
+      const { error } = await sb.auth.signInWithPassword({ email: e, password: pw });
+      if (error) { btn.disabled = false; return toast(error.message) }
+      await loadMe();
+      if (!me) { btn.disabled = false; return toast("Could not load your profile") }
+      await loadAll();
+      drawTabs();
+      m.close();
+      toast("Welcome back!");
+      if (after) after(); else go(tab);
+    } catch (e) {
+      btn.disabled = false;
+      console.error("Login error:", e);
+      toast("An error occurred during login");
     }
   }
+
   draw();
 }
 
@@ -900,7 +1021,10 @@ function rHome() {
   }).sort((a, b) => ended(a) - ended(b) || String(a.date).localeCompare(String(b.date)));
 
   // Only approved events appear in the Featured carousel.
-  const fe = ALL.filter(e => e.featured && !ended(e));
+  const fe = ALL.filter(e => e.featured
+    && e.featured_status !== "pending"
+    && e.featured_status !== "rejected"
+    && !ended(e));
   $("#feat").innerHTML = !filt && fe.length ? `<h2 class="h2">Featured</h2><div class="car">${fe.map(fc).join("")}</div>` : "";
   $("#hl").textContent = filt ? `${l.length} result${l.length === 1 ? "" : "s"}` : "Upcoming";
   $("#list").innerHTML = l.length ? l.map(row).join("") : `<div class="emp">${I("search")}<p>No events found</p></div>`;
@@ -1863,7 +1987,6 @@ function openEditor(id) {
       const btn = g("#sv");
       btn.disabled = true;
 
-      /* ---- Featured approval workflow ---- */
       const wantsFeatured = !!(m.querySelector("#featreq") && m.querySelector("#featreq").checked);
       const prevStatus = D.featuredStatus;
       let featuredStatus = prevStatus;
@@ -1873,8 +1996,11 @@ function openEditor(id) {
         featured = true;
         featuredStatus = "approved";
       } else if (wantsFeatured) {
-        featured = false;                  // never true until admin approves
+        featured = false;
         featuredStatus = "pending";
+      } else if (prevStatus === "rejected") {
+        featured = false;
+        featuredStatus = "rejected";
       } else {
         featured = false;
         featuredStatus = "none";
@@ -1938,8 +2064,6 @@ async function loadPayouts() {
   }
 }
 
-// Organiser's share of sales, minus every payout that has not been declined.
-// Pending requests reserve funds so the same money can't be requested twice.
 function payoutBalance() {
   const gross = MINE.reduce((s, e) => s + (e.tiers || []).reduce((a, t) => a + t.sold * t.price, 0), 0);
   const earned = Math.round(gross * (1 - fee / 100));
@@ -2046,6 +2170,7 @@ function rMe() {
          <div class="gi">${I("ticket")}<span>Tickets booked</span><span class="sp">${TIX.length}</span></div>
          ${isOrg() ? `<div class="gi">${I("grid")}<span>Events created</span><span class="sp">${MINE.length}</span></div>` : ""}
          <div class="gi">${I("user")}<span>Account type</span><span class="sp">${me.role === "organiser" ? "Organiser" : me.role === "admin" ? "Admin" : "Customer"}</span></div>
+         <button class="gi" onclick="changePassword()" style="width:100%;text-align:left;cursor:pointer">${I("link")}<span>Change password</span></button>
        </div>
        ${isOrg() ? "" : `<p class="hint c">Want to sell tickets? Create a separate organiser account.</p>`}
        ${me.role === "admin" ? `<div id="adminFeat"></div>` : ""}
@@ -2128,11 +2253,10 @@ async function reviewFeatured(id, status) {
 /* ==========================================================
    STATIC PAGES — Terms, Refunds, Privacy, Organisers, FAQ, About
    ========================================================== */
-const POLICY_DATE = "1 June 2025";   // <-- update when you change the copy
+const POLICY_DATE = "1 June 2025";
 
 const PAGES = {
 
-  /* ---------------- TERMS & CONDITIONS ---------------- */
   terms: {
     nav: "Terms",
     title: "Terms &amp; Conditions",
@@ -2209,7 +2333,6 @@ const PAGES = {
       <p>Questions about these Terms? Email <a href="mailto:support@tamba.events">support@tamba.events</a> or see the <a href="#" onclick="openPage('about');return false">About &amp; contact</a> page.</p>`
   },
 
-  /* ---------------- REFUND & CANCELLATION ---------------- */
   refunds: {
     nav: "Refunds",
     title: "Refund &amp; Cancellation Policy",
@@ -2265,7 +2388,6 @@ const PAGES = {
       <p>Refund questions: <a href="mailto:support@tamba.events">support@tamba.events</a> · WhatsApp <a href="https://wa.me/260977000000" target="_blank" rel="noopener">+260 977 000 000</a>.</p>`
   },
 
-  /* ---------------- PRIVACY ---------------- */
   privacy: {
     nav: "Privacy",
     title: "Privacy Policy",
@@ -2339,7 +2461,6 @@ const PAGES = {
       <p>Privacy questions: <a href="mailto:privacy@tamba.events">privacy@tamba.events</a>.</p>`
   },
 
-  /* ---------------- ORGANISER AGREEMENT ---------------- */
   organisers: {
     nav: "For organisers",
     title: "Organiser Agreement",
@@ -2392,7 +2513,6 @@ const PAGES = {
       <p>You can stop using the Platform at any time. We can end this agreement if you materially breach it. Either way, tickets already sold must still be honoured and any outstanding refunds settled.</p>`
   },
 
-  /* ---------------- FAQ / HELP ---------------- */
   faq: {
     nav: "Help",
     title: "Help &amp; FAQ",
@@ -2447,13 +2567,12 @@ const PAGES = {
 
       <h2>Account</h2>
       <h3>I forgot my password.</h3>
-      <p>Contact support from the email address on your account and we will help you regain access.</p>
+      <p>On the sign-in screen, tap <b>Forgot password?</b> and we'll email you a link to reset it. If the email doesn't arrive, check your spam folder or contact support.</p>
 
       <h3>How do I close my account?</h3>
       <p>Email <a href="mailto:support@tamba.events">support@tamba.events</a>. We keep booking and payment records for 7 years as required by law, then delete them.</p>`
   },
 
-  /* ---------------- ABOUT & CONTACT ---------------- */
   about: {
     nav: "About",
     title: "About &amp; Contact",
@@ -2545,11 +2664,25 @@ const yrEl = document.getElementById("yr");
 if (yrEl) yrEl.textContent = new Date().getFullYear();
 $("#list").innerHTML = `<div class="sk">${skeleton(5)}</div>`;
 (async () => {
+  // Detect recovery link BEFORE supabase-js processes the URL hash
+  const isRecovery = (() => {
+    try {
+      const hp = new URLSearchParams((location.hash || "").slice(1));
+      return hp.get("type") === "recovery";
+    } catch { return false; }
+  })();
+
   try {
     await loadMe();
     await loadAll();
     go("home");
     openFromUrl();
+
+    if (isRecovery) {
+      try { history.replaceState({}, "", location.pathname + location.search); } catch { }
+      openAuth(null, "reset");
+    }
+
     sb.auth.onAuthStateChange(async (event) => {
       if (!["SIGNED_IN", "SIGNED_OUT", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) return;
       try {
