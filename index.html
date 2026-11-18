@@ -214,6 +214,19 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .okicon{width:56px;height:56px;border-radius:50%;background:rgba(52,199,89,.18);color:#1a7f37;display:grid;place-items:center;margin:8px auto 12px;font-size:1.6rem;font-weight:700}
 /* ==================== */
 
+/* ===== subscription plans ===== */
+.plan-card{background:var(--g1);border-radius:16px;padding:16px;margin:12px 0}
+.plan-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.plan-top small{display:block;color:var(--t2);font-size:.75rem;font-weight:600}
+.plan-top b{display:block;font-size:1.25rem;letter-spacing:-.02em;margin-top:2px}
+.plan-pill{background:#fff;border-radius:99px;padding:5px 11px;font-size:.72rem;font-weight:700;color:var(--ac);white-space:nowrap}
+.plan-note{color:var(--t2);font-size:.82rem;margin:8px 0 12px;line-height:1.45}
+.plan-cur{display:inline-block;background:rgba(0,122,255,.12);color:var(--ac);font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:99px;vertical-align:middle;margin-left:6px;text-transform:uppercase;letter-spacing:.05em}
+.plan-perks{list-style:none;margin:2px 0 14px;padding:0 0 0 2px;color:var(--t2);font-size:.85rem;line-height:1.5}
+.plan-perks li{position:relative;padding-left:18px;margin-bottom:5px}
+.plan-perks li::before{content:"✓";position:absolute;left:0;color:#34C759;font-weight:700}
+/* =============================== */
+
 /* ===== static content pages (legal, help, about) ===== */
 #page{position:fixed;top:0;bottom:0;left:50%;width:min(520px,100%);background:#fff;z-index:230;overflow-y:auto;transform:translate(calc(-50% + 110vw),0);transition:transform .38s cubic-bezier(.32,.72,0,1)}
 #page.on{transform:translate(-50%,0)}
@@ -296,10 +309,12 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
   ✓ Show/hide password toggle on all password fields
   ✓ Forgot password + set-new-password flow (Supabase recovery)
   ✓ "Change password" from the Account page
+  ✓ Organiser subscription plans (commission / monthly / hybrid)
+  ✓ Plan pricing + commission now sync from settings (admin changes propagate)
   ===================================*/
 
-const SUPABASE_URL = "https://grbcwerpexwzttdwukjv.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdyYmN3ZXJwZXh3enR0ZHd1a2p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzMDU5NzYsImV4cCI6MjEwNjg4MTk3Nn0._eH8J9Y-4I20UHHCsWmvbfDJmysNFGM9ErEGxb6Cncw";
+const SUPABASE_URL = "https://lqztzsacjmmibstjarzd.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxxenR6c2Fjam1taWJzdGphcnpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5MDczMjYsImV4cCI6MjExMDQ4MzMyNn0.s3akZqx7oRctDX0hqFLO5FeZ4TCegiYq6H3ktSPnG-8";
 const USE_LOCAL = false;
 const sb = USE_LOCAL ? localSb() : supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -407,6 +422,10 @@ const I = (n, c = "") => `<svg class="i ${c}" viewBox="0 0 24 24" aria-hidden="t
 let me = null, ALL = [], MINE = [], TIX = [], SAVED = [], fee = 5, openEvId = null;
 let cat = "", city = "", dateF = "", priceF = "", q = "", psT = null, chartInst = null;
 let qSearchTimeout = null;
+
+/* Platform-wide settings mirrored from the admin panel.
+   Admin can change fee + plan pricing in Settings; loadAll() copies them in. */
+let SETTINGS = { fee: 5, plan_starter_price: 199, plan_starter_fee: 3, plan_pro_price: 499, plan_pro_fee: 0 };
 
 /* ---------- PLACEHOLDER EVENTS ---------- */
 const SHOW_SAMPLES = false;
@@ -872,10 +891,24 @@ async function loadAll() {
   try {
     const [{ data: ev }, { data: st }] = await Promise.all([
       sb.from("events").select("*").neq("status", "suspended").order("date"),
-      sb.from("settings").select("fee").eq("id", 1).maybeSingle()
+      sb.from("settings").select("*").eq("id", 1).maybeSingle()
     ]);
     if (ev) ALL = ev;
-    if (st && typeof st.fee === "number") fee = st.fee;
+
+    // Mirror admin-controlled settings and sync them into PLANS.
+    if (st) {
+      SETTINGS = { ...SETTINGS, ...st };
+      if (typeof st.fee === "number") fee = st.fee;
+
+      if (typeof st.plan_starter_price === "number") PLANS.starter.price  = st.plan_starter_price;
+      if (typeof st.plan_starter_fee   === "number") PLANS.starter.feePct = st.plan_starter_fee;
+      if (typeof st.plan_pro_price     === "number") PLANS.pro.price      = st.plan_pro_price;
+      if (typeof st.plan_pro_fee       === "number") PLANS.pro.feePct     = st.plan_pro_fee;
+
+      PLANS.starter.tagline = `${PLANS.starter.price ? "ZMW " + PLANS.starter.price + " / month" : "Free"} · ${PLANS.starter.feePct}% per sale`;
+      PLANS.pro.tagline     = `${PLANS.pro.price     ? "ZMW " + PLANS.pro.price     + " / month" : "Free"} · ${PLANS.pro.feePct}% per sale`;
+    }
+
     ALL = ALL.filter(e => !e.demo);
     if (SHOW_SAMPLES && !USE_LOCAL) ALL = [...ALL, ...SAMPLES];
     if (me) {
@@ -1777,20 +1810,23 @@ async function openScan() {
 function rOrg() {
   const sold = MINE.reduce((s, e) => s + (e.tiers || []).reduce((a, t) => a + t.sold, 0), 0);
   const gross = MINE.reduce((s, e) => s + (e.tiers || []).reduce((a, t) => a + t.sold * t.price, 0), 0);
-  const yourShare = Math.round(gross * (1 - fee / 100));
+  const ef = effFee();
+  const feeAmt = Math.round(gross * ef / 100);
+  const yourShare = gross - feeAmt;
 
   $("#ol").innerHTML = `
     <div class="kpis">
       <div class="kpi"><small>Events</small><b>${MINE.length}</b></div>
       <div class="kpi"><small>Tickets sold</small><b>${sold}</b></div>
       <div class="kpi"><small>Gross sales</small><b>${money(gross)}</b></div>
-      <div class="kpi"><small>Your ${100 - fee}% share</small><b>${money(yourShare)}</b></div>
+      <div class="kpi"><small>Your share</small><b>${money(yourShare)}</b></div>
     </div>
+    ${planCardHTML()}
     ${MINE.length ? `<h2 class="h2">Tickets sold per event</h2><div class="chart-container"><canvas id="orgChart"></canvas></div>` : ""}
     <h2 class="h2">Sales breakdown</h2>
     <div class="grp">
       <div class="gi"><span>Gross revenue</span><span class="sp">${money(gross)}</span></div>
-      <div class="gi"><span>Platform fee (${fee}%)</span><span class="sp" style="color:var(--t2)">-${money(Math.round(gross * fee / 100))}</span></div>
+      <div class="gi"><span>Platform fee (${ef}% · ${esc(activePlan().name)})</span><span class="sp" style="color:var(--t2)">${ef === 0 ? money(0) : "-" + money(feeAmt)}</span></div>
       <div class="gi"><span><b>Your payout</b></span><span class="sp" style="color:var(--ac);font-weight:700">${money(yourShare)}</span></div>
     </div>
     <div class="pay-card">
@@ -1934,13 +1970,13 @@ function openEditor(id) {
             <input type="checkbox" id="featreq"
               ${D.featuredStatus === "pending" || D.featuredStatus === "approved" ? "checked" : ""}
               ${D.featuredStatus === "approved" ? "disabled" : ""}>
-            Request to be featured on Explore
+            Request to be featured on Explore at a fee of k100 ( approved once payment is received and confirmed)
           </label>
           <p class="hint">${featHint}</p>
         </div>
 
         <h2 class="h2" style="margin-top:8px">Tickets</h2>
-        <p class="sub">Use 0 for free tickets. A ${fee}% platform fee applies.</p>
+        <p class="sub">Use 0 for free tickets. ${effFee() === 0 ? "No commission on your current plan." : "A " + effFee() + "% platform fee applies on your current plan."}</p>
         ${T.map((t, i) => `<div class="trow">
           <input class="in n" data-t="${i}" data-f="name" placeholder="Name" value="${esc(t.name)}">
           <input class="in p" type="number" inputmode="numeric" min="0" data-t="${i}" data-f="price" placeholder="Price" value="${t.price}">
@@ -2066,7 +2102,7 @@ async function loadPayouts() {
 
 function payoutBalance() {
   const gross = MINE.reduce((s, e) => s + (e.tiers || []).reduce((a, t) => a + t.sold * t.price, 0), 0);
-  const earned = Math.round(gross * (1 - fee / 100));
+  const earned = gross - Math.round(gross * effFee() / 100);
   const committed = PAYOUTS.filter(p => p.status !== "rejected")
     .reduce((s, p) => s + Number(p.amount || 0), 0);
   return Math.max(0, earned - committed);
@@ -2150,6 +2186,223 @@ function payoutConfirmed(a) {
 
 /* ---------- END PAYOUTS ---------- */
 
+/* ---------- SUBSCRIPTION PLANS ---------- */
+/*
+  Organisers choose how they pay to sell on Tamba.Events:
+    commission – ZMW 0/month, the platform fee from settings on every sale
+    starter    – default ZMW 199/month, 3% on every sale
+    pro        – default ZMW 499/month, 0% on every sale
+
+  Defaults are below; loadAll() overwrites them with whatever the admin saved
+  in settings (plan_starter_price, plan_starter_fee, plan_pro_price, plan_pro_fee).
+
+  The chosen plan lives on profiles.plan (+ plan_started_at / plan_expires_at).
+  When a monthly plan lapses the organiser drops back to commission automatically.
+
+  Run the migration SQL once (see Organiser Agreement in the admin docs).
+*/
+
+const PLANS = {
+  commission: {
+    id: "commission",
+    name: "Pay as you sell",
+    tagline: "No monthly fee — commission only when you sell",
+    price: 0,
+    feePct: null,               // null = use the platform fee from settings
+    perks: ["Free to start", "Commission only on tickets you actually sell", "All core tools included"]
+  },
+  starter: {
+    id: "starter",
+    name: "Starter",
+    tagline: "Monthly fee · lower commission per sale",
+    price: 199,
+    feePct: 3,
+    perks: ["Lower commission per sale", "Unlimited events", "Check-in scanner included"]
+  },
+  pro: {
+    id: "pro",
+    name: "Pro",
+    tagline: "Monthly fee · 0% commission per sale",
+    price: 499,
+    feePct: 0,
+    perks: ["Keep every kwacha — 0% commission", "Unlimited events", "Priority support"]
+  }
+};
+const PLAN_ORDER = ["commission", "starter", "pro"];
+const PLAN_DAYS = 30;
+
+const planName = id => (PLANS[id] ? PLANS[id].name : "Pay as you sell");
+const planFeePct = p => (p && p.id !== "commission" && typeof p.feePct === "number") ? p.feePct : fee;
+
+const planExpired = () => !!(
+  me && me.plan && me.plan !== "commission" &&
+  me.plan_expires_at && new Date(me.plan_expires_at).getTime() < Date.now()
+);
+const planMissingExpiry = () => !!(me && me.plan && me.plan !== "commission" && !me.plan_expires_at);
+
+function activePlan() {
+  if (!me) return PLANS.commission;
+  if (me.plan === "starter" || me.plan === "pro") {
+    if (planExpired() || planMissingExpiry()) return PLANS.commission;
+    return PLANS[me.plan];
+  }
+  return PLANS.commission;
+}
+
+/* The commission rate that actually applies to this organiser right now. */
+function effFee() {
+  return planFeePct(activePlan());
+}
+
+function planCardHTML() {
+  const p = activePlan();
+  const pct = planFeePct(p);
+  const lapsed = !!(me && me.plan && me.plan !== "commission" && (planExpired() || planMissingExpiry()));
+  const exp = me && me.plan_expires_at ? new Date(me.plan_expires_at) : null;
+  const days = exp && !lapsed ? Math.ceil((exp.getTime() - Date.now()) / 86400000) : 0;
+
+  const note = lapsed
+    ? `Your ${esc(planName(me.plan))} plan has ended — you're on commission until you renew.`
+    : exp
+      ? `Renews ${fdate(exp.toISOString().slice(0, 10))}${days <= 5 ? ` · ${days} day${days === 1 ? "" : "s"} left` : ""}`
+      : esc(p.tagline);
+
+  return `<div class="plan-card">
+    <div class="plan-top">
+      <div><small>Subscription</small><b>${esc(p.name)}</b></div>
+      <span class="plan-pill">${pct === 0 ? "0% commission" : pct + "% per sale"}</span>
+    </div>
+    <p class="plan-note">${note}</p>
+    <button class="btn sm" onclick="openPlans()">${lapsed ? "Renew plan" : "Change plan"}</button>
+  </div>`;
+}
+
+function openPlans() {
+  needAuth(() => {
+    if (!isOrg()) return toast("Organiser accounts only");
+
+    const m = sheet("");
+    const g = s => m.querySelector(s);
+    let pick = activePlan().id;
+    let nm = me.name || "";
+    let ph = me.phone || "";
+
+    const draw = () => {
+      const cur = activePlan().id;
+      const p = PLANS[pick];
+      const same = pick === cur;
+
+      const hintTxt = p.price
+        ? "You'll approve the payment on your phone. The plan runs for 30 days."
+        : (!same && cur !== "commission")
+          ? "Switching to commission ends your paid period immediately. The remaining days are not refunded."
+          : "You only pay commission on the tickets you actually sell.";
+
+      g(".sh").innerHTML = `<div class="grab"></div>` +
+        sh("Choose your plan", "Monthly plans are billed in advance. You can move back to commission at any time.") +
+        PLAN_ORDER.map(id => {
+          const x = PLANS[id];
+          return `<button class="tt ${pick === id ? "on" : ""}" data-pl="${id}">
+            <span class="rd"></span>
+            <span class="tn">${esc(x.name)}${cur === id ? '<span class="plan-cur">current</span>' : ""}
+              <small>${esc(x.tagline)}</small></span>
+            <b>${x.price ? money(x.price) : "Free"}</b>
+          </button>`;
+        }).join("") +
+        `<ul class="plan-perks">${(p.perks || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>` +
+        (p.price ? `
+          <div class="fld"><label>Full name</label><input class="in" id="pln" value="${esc(nm)}" autocomplete="name"></div>
+          <div class="fld"><label>Mobile money number</label><input class="in" id="plp" type="tel" value="${esc(ph)}" placeholder="0977 123 456" autocomplete="tel"></div>` : "") +
+        `<button class="btn b" id="plgo" ${same ? "disabled" : ""}>${same ? "Current plan" : p.price ? "Pay " + money(p.price) : "Switch to commission"}</button>
+         <p class="hint c">${hintTxt}</p>`;
+
+      m.querySelectorAll("[data-pl]").forEach(b => b.onclick = () => { pick = b.dataset.pl; draw() });
+      const bn = g("#pln"), bp = g("#plp");
+      if (bn) bn.oninput = e => { nm = e.target.value };
+      if (bp) bp.oninput = e => { ph = e.target.value };
+      const goBtn = g("#plgo");
+      if (goBtn) goBtn.onclick = submit;
+    };
+
+    async function submit() {
+      const p = PLANS[pick];
+      if (!p) return;
+
+      if (p.price > 0) {
+        if (nm.trim().length < 2) return toast("Enter the account name");
+        if (!isValidPhone(ph)) return toast("Enter a valid mobile money number");
+      }
+
+      const btn = g("#plgo");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>';
+
+      try {
+        if (p.price > 0) {
+          const ref = await startPayment({ amount: p.price, name: nm.trim(), phone: ph });
+          btn.innerHTML = '<span class="spin"></span> Approve on your phone…';
+          const paid = await pollPayment(ref, st => {
+            if (st === "pending") btn.innerHTML = '<span class="spin"></span> Waiting for confirmation…';
+          });
+          if (paid.status !== "paid") {
+            draw();
+            return toast(paid.status === "failed"
+              ? "Payment was not completed. You have not been charged."
+              : "Payment is still pending. Approve it on your phone, then try again.");
+          }
+          btn.innerHTML = '<span class="spin"></span> Activating…';
+        }
+
+        await savePlan(p.id, p.price);
+        m.close();
+        toast(p.price ? p.name + " plan activated" : "You're back on commission");
+        if (tab === "org") rOrg();
+        else if (tab === "me") rMe();
+      } catch (err) {
+        console.error("Plan change error:", err);
+        draw();
+        toast(err && err.message ? err.message : "Could not change plan");
+      }
+    }
+
+    draw();
+  });
+}
+
+async function savePlan(planId, amountPaid) {
+  const start = new Date();
+  const end = new Date(start.getTime() + PLAN_DAYS * 86400000);
+  const patch = {
+    plan: planId,
+    plan_started_at: start.toISOString(),
+    plan_expires_at: planId === "commission" ? null : end.toISOString(),
+    plan_amount: amountPaid || 0
+  };
+
+  const { error } = await sb.from("profiles").update(patch).eq("id", me.id);
+  if (error) {
+    const msg = /column|schema|does not exist/i.test(error.message || "")
+      ? "Subscriptions aren't set up on this project yet (add the profiles.plan columns)."
+      : error.message;
+    throw new Error(msg);
+  }
+
+  Object.assign(me, patch);
+
+  try {
+    await sb.from("subscriptions").insert({
+      id: uid("sub_"),
+      organiser_id: me.id,
+      plan: planId,
+      amount: amountPaid || 0,
+      status: "active",
+      started_at: patch.plan_started_at,
+      expires_at: patch.plan_expires_at
+    });
+  } catch (e) { console.warn("Subscription log failed:", e); }
+}
+/* ---------- END SUBSCRIPTION PLANS ---------- */
+
 /* ---------- ACCOUNT ---------- */
 function rMe() {
   const legal = `<h2 class="h2">Legal &amp; support</h2>
@@ -2169,6 +2422,7 @@ function rMe() {
        <div class="grp">
          <div class="gi">${I("ticket")}<span>Tickets booked</span><span class="sp">${TIX.length}</span></div>
          ${isOrg() ? `<div class="gi">${I("grid")}<span>Events created</span><span class="sp">${MINE.length}</span></div>` : ""}
+         ${isOrg() ? `<button class="gi" onclick="openPlans()" style="width:100%;text-align:left;cursor:pointer">${I("grid")}<span>Subscription</span><span class="sp">${esc(activePlan().name)}</span></button>` : ""}
          <div class="gi">${I("user")}<span>Account type</span><span class="sp">${me.role === "organiser" ? "Organiser" : me.role === "admin" ? "Admin" : "Customer"}</span></div>
          <button class="gi" onclick="changePassword()" style="width:100%;text-align:left;cursor:pointer">${I("link")}<span>Change password</span></button>
        </div>
@@ -2303,7 +2557,7 @@ const PAGES = {
       </ul>
 
       <h2>7. Fees</h2>
-      <p>Organisers pay a platform fee of 5% of gross ticket sales, deducted from their payout. Buyers pay the ticket price shown at checkout — we do not add a hidden booking fee.</p>
+      <p>Organisers choose how they pay to sell on Tamba.Events. Under the <b>pay-as-you-sell</b> plan the platform fee is a percentage of gross ticket sales, deducted from the payout. Under the <b>Starter</b> and <b>Pro</b> plans a fixed monthly fee is charged in advance and a reduced (or zero) commission applies. Buyers pay only the ticket price shown at checkout — we do not add a hidden booking fee.</p>
 
       <h2>8. Acceptable use</h2>
       <ul>
@@ -2465,7 +2719,7 @@ const PAGES = {
     nav: "For organisers",
     title: "Organiser Agreement",
     body: `
-      <div class="note"><b>In short</b>Publish real events, honour every ticket you sell, and keep your payout details correct. We charge a 5% fee on gross sales.</div>
+      <div class="note"><b>In short</b>Publish real events, honour every ticket you sell, and keep your payout details correct. Pick the plan that suits you — commission only, or a monthly fee with lower commission.</div>
 
       <h2>1. Who can publish</h2>
       <p>Only accounts registered as organisers can create events. You confirm that you are authorised to run the events you publish and that you have — or will have — every licence, permit and insurance policy the event requires.</p>
@@ -2481,10 +2735,15 @@ const PAGES = {
       <h2>3. Honouring tickets</h2>
       <p>Every ticket sold through Tamba.Events must be honoured at the gate, for the tier and quantity shown. Refusing entry to a valid ticket holder is a breach of this agreement.</p>
 
-      <h2>4. Fees and payouts</h2>
+      <h2>4. Plans, fees and payouts</h2>
       <ul>
-        <li>A platform fee of <b>5%</b> applies to gross ticket sales and is deducted from your payout.</li>
-        <li>Your balance grows as tickets sell. You can request a payout of any amount up to your available balance.</li>
+        <li>You choose how you pay to sell, from the <b>Organise</b> tab:
+          <br>• <b>Pay as you sell</b> — no monthly fee, a commission on each ticket sold.
+          <br>• <b>Starter</b> — a fixed monthly fee with a lower commission.
+          <br>• <b>Pro</b> — a fixed monthly fee with no commission.</li>
+        <li>Monthly plans are billed <b>in advance</b> for 30 days and are not automatically renewed. When a monthly plan lapses you return to the pay-as-you-sell commission until you renew.</li>
+        <li>Moving from a monthly plan back to commission ends the paid period immediately; remaining days are not refunded.</li>
+        <li>Your balance grows as tickets sell, after the commission for your current plan. You can request a payout of any amount up to your available balance.</li>
         <li>Payouts are made to the mobile-money number you provide and are <b>verified before disbursement</b>, normally within <b>2 working days</b> of approval.</li>
         <li>You are responsible for the accuracy of your payout details. Funds sent to a number you supplied incorrectly may not be recoverable.</li>
         <li>You are responsible for any taxes due on your ticket revenue.</li>
@@ -2560,7 +2819,10 @@ const PAGES = {
       <p>Request a payout from the Organise tab whenever you have a balance. Requests are verified and normally paid within 2 working days.</p>
 
       <h3>What does it cost?</h3>
-      <p>A 5% platform fee on gross ticket sales. There are no listing fees and no monthly charges.</p>
+      <p>You pick a plan from the Organise tab. <b>Pay as you sell</b> costs nothing upfront and takes commission on each ticket sold. <b>Starter</b> and <b>Pro</b> charge a fixed monthly fee and charge a lower commission (Pro charges none at all). Monthly plans run for 30 days and are not auto-renewed.</p>
+
+      <h3>Can I change my plan?</h3>
+      <p>Yes — tap <b>Change plan</b> on the subscription card in the Organise tab. Upgrades take effect as soon as the payment is confirmed. Moving back to commission ends the paid period immediately.</p>
 
       <h3>How do I get my event featured on Explore?</h3>
       <p>When creating or editing an event, tick <b>Request to be featured</b>. Our team reviews requests and approved events appear in the carousel at the top of Explore.</p>
@@ -2601,7 +2863,7 @@ const PAGES = {
       </div>
 
       <h2>For organisers</h2>
-      <p>Selling on Tamba.Events is free to set up. We charge 5% of gross ticket sales, and payouts go straight to your mobile money wallet. Read the <a href="#" onclick="openPage('organisers');return false">Organiser Agreement</a> for the full details.</p>
+      <p>Selling on Tamba.Events is free to set up — pick pay-as-you-sell for commission-only pricing, or a monthly plan for a lower commission. Payouts go straight to your mobile money wallet. Read the <a href="#" onclick="openPage('organisers');return false">Organiser Agreement</a> for the full details.</p>
 
       <h2>Report a problem</h2>
       <p>Found a bug, a fake listing or something that looks wrong? Email <a href="mailto:support@tamba.events">support@tamba.events</a> with as much detail as you can — a screenshot helps.</p>`
