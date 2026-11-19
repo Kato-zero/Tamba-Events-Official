@@ -245,6 +245,21 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .doc-foot{border-top:1px solid var(--sep);margin-top:30px;padding-top:18px}
 .doc-foot h3{font-size:.95rem;font-weight:700;margin-bottom:10px}
 .foot{margin-top:28px;padding-top:20px;border-top:1px solid var(--sep);text-align:center}
+.paybox{background:var(--g1);border-radius:16px;padding:16px;margin:12px 0}
+.paybox small{color:var(--t2);font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.paybox .amt{font-size:1.7rem;font-weight:800;letter-spacing:-.03em;margin:2px 0 10px}
+.paybox .num{display:flex;align-items:center;gap:10px;background:#fff;border-radius:12px;padding:10px 12px;margin-top:8px}
+.paybox .num b{flex:1;min-width:0;font-family:ui-monospace,Menlo,monospace;font-size:1rem;letter-spacing:.03em;word-break:break-all}
+.paybox .num button{color:var(--ac);font-weight:700;font-size:.8rem;padding:7px 10px;border-radius:9px;background:var(--g1);display:inline-flex;align-items:center;gap:5px}
+.pstrip{display:flex;gap:10px;align-items:flex-start;border-radius:14px;padding:12px 14px;font-size:.86rem;line-height:1.45;margin:0 0 12px}
+.pstrip .i{width:18px;height:18px;flex-shrink:0;margin-top:1px}
+.pstrip.wait{background:rgba(255,149,0,.14);color:#a55a00}
+.pstrip.ok{background:rgba(52,199,89,.16);color:#1a7f37}
+.pstrip.no{background:rgba(255,59,48,.12);color:#c4281e}
+.proof{background:var(--g1);border-radius:16px;padding:10px;margin:12px 0;text-align:center}
+.proof img{max-width:100%;max-height:52vh;border-radius:10px;display:block;margin:0 auto;object-fit:contain}
+.pay-status.ps-awaiting{background:rgba(255,149,0,.16);color:#a55a00}
+.pay-status.ps-declined{background:rgba(255,59,48,.12);color:#c4281e}
 /* ==================================================== */
 </style>
 </head>
@@ -324,44 +339,162 @@ const SUPABASE_URL = "https://xlvogxsguufkhpnefrfy.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhsdm9neHNndXVma2hwbmVmcmZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUwODQzMDIsImV4cCI6MjExMDY2MDMwMn0.0ov9lsRGmxGuwj948kgEmiTH60RmFGN1gwf4AXWU7uU";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-/* ---------- PAYMENTS (Lipila mobile money via /api) ----------
-   The server works out the price and issues the ticket once Lipila confirms. */
-const PAYMENT_API = "/api";
-const PAYMENT_POLL_MS = 4000;
-const PAYMENT_TIMEOUT_MS = 180000;
+/* ---------- PAYMENTS (ported from Zambia Stays) ---------- */
+const PAY = { create: "/api/createpayment", status: "/api/checkpayment", pollMs: 4000, timeoutMs: 120000 };
 
-async function paymentAuth() {
-  const { data: { session } } = await db.auth.getSession();
-  if (!session) throw new Error("Please sign in again to pay for tickets.");
-  return { Authorization: "Bearer " + session.access_token };
+function paymentState(resp) {
+  const root = resp && typeof resp === "object" ? resp : {};
+  const body = root.data && typeof root.data === "object" ? root.data : root;
+  const vals = [];
+  const scan = (o, depth) => {
+    if (!o || typeof o !== "object" || depth > 3) return;
+    for (const [k, v] of Object.entries(o)) {
+      if (typeof v === "string" && /status|state|result/i.test(k)) vals.push(v);
+      else if (v && typeof v === "object") scan(v, depth + 1);
+    }
+  };
+  scan(body, 0);
+  const s = vals.join(" ").toLowerCase();
+  if (/\b(successful|success|succeeded|completed|complete|paid|approved|collected)\b/.test(s)) return "paid";
+  if (/\b(failed|failure|declined|decline|cancelled|canceled|rejected|expired|reversed|insufficient|invalid)\b/.test(s)) return "failed";
+  return "pending";
 }
 
-async function startPayment({ eventId, tierName, qty, name, phone, email, method }) {
-  const res = await fetch(PAYMENT_API + "/create-payment", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...(await paymentAuth()) },
-    body: JSON.stringify({ event_id: eventId, tier_name: tierName, qty, customer_name: name, phone, email, method })
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.success) throw new Error(data.message || "Could not start the payment.");
+async function startPayment({ amount, name, phone }) {
+  let r;
+  try {
+    r = await fetch(PAY.create, { method: "POST", headers: { "Content-Type": "application/json", accept: "application/json" }, body: JSON.stringify({ amount, customer_name: name, phone }) });
+  } catch (e) { throw new Error("Could not reach the payment service. Check your connection and try again."); }
+  let data = null;
+  try { data = await r.json() } catch { data = null }
+  if (!r.ok || !data || !data.success || !data.referenceId) throw new Error((data && data.message) || "Could not start the payment. Please try again.");
   return data.referenceId;
 }
 
 async function pollPayment(referenceId, onUpdate) {
   const started = Date.now();
-  while (Date.now() - started < PAYMENT_TIMEOUT_MS) {
-    await new Promise(r => setTimeout(r, PAYMENT_POLL_MS));
-    const res = await fetch(`${PAYMENT_API}/check-payment-status?referenceId=${encodeURIComponent(referenceId)}`, {
-      headers: await paymentAuth()
-    });
-    const data = await res.json().catch(() => ({ state: "pending" }));
-    if (data.state === "successful") return { status: "paid", referenceId, ticket: data.ticket };
-    if (data.state === "failed") return { status: "failed", referenceId };
-    if (data.state === "refund_due") return { status: "refund_due", referenceId, message: data.message };
-    if (onUpdate) onUpdate("pending");
+  let tries = 0;
+  while (Date.now() - started < PAY.timeoutMs) {
+    await new Promise(r => setTimeout(r, tries === 0 ? 2500 : PAY.pollMs));
+    tries++;
+    let resp = null;
+    try {
+      const r = await fetch(PAY.status + "?referenceId=" + encodeURIComponent(referenceId), { headers: { accept: "application/json" } });
+      resp = await r.json().catch(() => null);
+    } catch (e) { console.warn("Payment status check failed:", e); }
+    const st = paymentState(resp);
+    if (onUpdate) onUpdate(st);
+    if (st === "paid") return { status: "paid", referenceId, response: resp };
+    if (st === "failed") return { status: "failed", referenceId, response: resp };
   }
   return { status: "pending", referenceId };
 }
+
+const PAY_NETWORKS = ["MTN", "Airtel", "Zamtel"];
+function payInfo(e) {
+  return { method: (e && e.pay_method === "direct") ? "direct" : "app", network: (e && e.pay_network) || "MTN", phone: (e && e.pay_phone) || "", name: (e && e.pay_name) || (e && e.owner_name) || "" };
+}
+const payStatusOf = t => (t && t.pay_status) || "";
+const needsApproval = t => payStatusOf(t) === "awaiting";
+const isApproved = t => payStatusOf(t) === "approved";
+const isDeclined = t => payStatusOf(t) === "declined";
+
+function ticketPayStrip(t) {
+  return isApproved(t) ? `<div class="pstrip ok">${I("ticket")}<div><b>Payment approved</b><br>Show the QR code at the gate.</div></div>`
+    : needsApproval(t) ? `<div class="pstrip wait">${I("clock")}<div><b>Awaiting organiser confirmation</b><br>The organiser is checking your payment screenshot.</div></div>`
+    : isDeclined(t) ? `<div class="pstrip no">${I("x")}<div><b>Payment declined</b><br>Please contact the organiser.</div></div>` : "";
+}
+const payTag = t => isApproved(t) ? " · ✓ payment approved" : needsApproval(t) ? " · ⏳ awaiting approval" : isDeclined(t) ? " · ✗ payment declined" : "";
+
+async function releaseTickets(eventId, tierName, qty) {
+  try {
+    const { data: row } = await db.from("events").select("*").eq("id", eventId).single();
+    if (!row || !Array.isArray(row.tiers)) return;
+    const tiers = row.tiers.map(t => t.name === tierName ? { ...t, sold: Math.max(0, (+t.sold || 0) - qty) } : t);
+    await db.from("events").update({ tiers }).eq("id", eventId);
+  } catch (e) { console.warn("releaseTickets:", e); }
+}
+
+async function saveEventRow(ev, isEdit) {
+  const run = row => isEdit ? db.from("events").update(row).eq("id", row.id) : db.from("events").insert(row);
+  let { error } = await run(ev);
+  if (error && /column|schema|does not exist|unknown|could not find/i.test(error.message || "")) {
+    const safe = { ...ev };
+    ["pay_method", "pay_network", "pay_phone", "pay_name"].forEach(k => delete safe[k]);
+    ({ error } = await run(safe));
+    if (!error) toast("Saved. Add the pay_* columns to enable payment settings");
+  }
+  return { error };
+}
+
+function paymentPending(t) {
+  const m = sheet(sh("Payment submitted", "Your screenshot has been sent to the organiser.") +
+    `<div class="pstrip wait">${I("clock")}<div><b>Waiting for the organiser to confirm</b><br>${esc(t.event_title)} · ${esc(t.tier)} × ${t.qty} · ${money(t.total)}</div></div>
+     <button class="btn b" id="ppv" style="margin-top:12px">View my tickets</button>`);
+  m.querySelector("#ppv").onclick = () => { m.close(); closeEv(); go("tix") };
+}
+
+/* Organiser side: approve or decline direct payments */
+let PENDING = [];
+const findPending = id => PENDING.find(x => x.id === id) || null;
+
+async function loadPending() {
+  const box = document.getElementById("payApprove");
+  if (!box || !me || !isOrg()) return;
+  if (!MINE.length) { box.innerHTML = ""; PENDING = []; return; }
+  box.innerHTML = `<h2 class="h2">Payments to approve</h2><div class="sk"><div class="sk-line"></div></div>`;
+  let rows = [];
+  try { const { data } = await db.from("tickets").select("*").in("event_id", MINE.map(e => e.id)); rows = (data || []).filter(needsApproval); } catch { }
+  PENDING = rows;
+  if (!rows.length) { box.innerHTML = `<h2 class="h2">Payments to approve</h2><p class="hint c">No payments are waiting for approval.</p>`; return; }
+  box.innerHTML = `<h2 class="h2">Payments to approve (${rows.length})</h2>` + rows.map(t => `
+    <div class="ocard"><div class="top" data-view="${esc(t.id)}">
+      <div class="th" style="width:64px;height:64px">${t.pay_proof ? `<img src="${t.pay_proof}" loading="lazy" alt="Payment proof">` : I("ticket")}</div>
+      <div class="rb"><b>${esc(t.buyer_name)}</b><span>${esc(t.event_title)}</span><span>${esc(t.tier)} × ${t.qty} · ${money(t.total)}</span><span class="pay-status ps-awaiting">Awaiting your approval</span></div>
+    </div>
+    <div class="acts"><button class="btn s sm" data-view="${esc(t.id)}">View proof</button><button class="btn sm" data-ok="${esc(t.id)}">✓ Approve</button><button class="btn d sm" data-no="${esc(t.id)}">✗ Decline</button></div></div>`).join("");
+  box.querySelectorAll("[data-view]").forEach(b => b.onclick = () => viewProof(b.dataset.view));
+  box.querySelectorAll("[data-ok]").forEach(b => b.onclick = () => approvePayment(b.dataset.ok));
+  box.querySelectorAll("[data-no]").forEach(b => b.onclick = () => declinePayment(b.dataset.no));
+}
+
+function viewProof(id) {
+  const t = findPending(id);
+  if (!t) return toast("Payment not found");
+  const m = sheet(sh("Payment proof", esc(t.event_title)) +
+    `<div class="grp"><div class="gi">${I("user")}<span>${esc(t.buyer_name)}<small>${esc(t.buyer_phone || "")}</small></span></div><div class="gi">${I("ticket")}<span>${esc(t.tier)} × ${t.qty}<small>${fdate(t.date)}</small></span><span class="sp">${money(t.total)}</span></div></div>
+     ${t.pay_ref ? `<p class="hint">Reference: <b>${esc(t.pay_ref)}</b></p>` : ""}
+     <div class="proof">${t.pay_proof ? `<img src="${t.pay_proof}" alt="Payment screenshot">` : `<p class="hint">No screenshot</p>`}</div>
+     <div class="two"><button class="btn d" id="dno">Decline</button><button class="btn" id="dok">Approve payment</button></div>`);
+  m.querySelector("#dok").onclick = () => { m.close(); approvePayment(id) };
+  m.querySelector("#dno").onclick = () => { m.close(); declinePayment(id) };
+}
+
+async function approvePayment(id) {
+  const t = findPending(id);
+  if (!t) return toast("Payment not found");
+  const ok = await ask("Approve this payment?", `Confirm you received <b>${money(t.total)}</b> from <b>${esc(t.buyer_name)}</b>.`, "Approve payment");
+  if (!ok) return;
+  const patch = { pay_status: "approved", pay_approved_at: new Date().toISOString(), pay_approved_by: me.id };
+  let { error } = await db.from("tickets").update(patch).eq("id", id);
+  if (error && /column|schema|does not exist|unknown/i.test(error.message || "")) ({ error } = await db.from("tickets").update({ pay_status: "approved" }).eq("id", id));
+  if (error) return toast(error.message);
+  toast("Payment approved");
+  await loadAll(); rOrg();
+}
+
+async function declinePayment(id) {
+  const t = findPending(id);
+  if (!t) return toast("Payment not found");
+  const ok = await ask("Decline this payment?", `The ticket for <b>${esc(t.buyer_name)}</b> will be cancelled.`, "Decline & release", "d");
+  if (!ok) return;
+  const { error } = await db.from("tickets").update({ pay_status: "declined" }).eq("id", id);
+  if (error) return toast(error.message);
+  await releaseTickets(t.event_id, t.tier, t.qty);
+  toast("Payment declined");
+  await loadAll(); rOrg();
+}
+/* ---------- END PAYMENTS ---------- */
 
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -1151,7 +1284,6 @@ window.addEventListener("popstate", ev => {
   else { closeEv(true); }
 });
 
-/* ---------- BUY ---------- */
 function buy(id) {
   needAuth(() => {
     const e = ALL.find(x => x.id === id);
@@ -1163,10 +1295,14 @@ function buy(id) {
 
     let ti = Math.max(0, e.tiers.findIndex(t => t.qty - t.sold > 0));
     let qty = 1, pay = "MTN", nm = me.name || "", ph = me.phone || "";
+    let proof = "", pref = "";
     const m = sheet(""), g = s => m.querySelector(s);
 
     const draw = () => {
       const t = e.tiers[ti], av = t.qty - t.sold, tot = t.price * qty;
+      const info = payInfo(e);
+      const direct = info.method === "direct" && tot > 0 && !!info.phone;
+
       g(".sh").innerHTML = `<div class="grab"></div>` + sh("Get tickets", esc(e.title) + " · " + fdate(e.date)) +
         `<div class="fld"><label>Choose ticket type</label>${e.tiers.map((x, i) =>
           `<button class="tt ${i === ti ? "on" : ""}" data-ti="${i}" ${x.qty - x.sold <= 0 ? "disabled" : ""}>
@@ -1176,18 +1312,32 @@ function buy(id) {
         <div class="fld"><label>Quantity · ${av} left</label><div class="qty"><button id="qm" aria-label="Fewer">${I("minus")}</button><b>${qty}</b><button id="qp" aria-label="More">${I("plus")}</button></div></div>
         <div class="fld"><label>Full name</label><input class="in" id="bn" value="${esc(nm)}" autocomplete="name"></div>
         <div class="fld"><label>WhatsApp number</label><input class="in" id="bp" type="tel" value="${esc(ph)}" placeholder="0977 123 456" autocomplete="tel"></div>
-        ${tot > 0 ? `<div class="fld"><label>Pay with mobile money</label><div class="seg">${["MTN", "Airtel", "Zamtel"].map(p => `<button data-p="${p}" class="${p === pay ? "on" : ""}">${p}</button>`).join("")}</div></div>` : ""}
+        ${direct ? `<div class="paybox"><small>Send payment to</small><div class="amt">${money(tot)}</div>
+            <div class="num"><b>${esc(info.network)} · ${esc(info.phone)}</b><button type="button" id="cpn">${I("copy")}Copy</button></div>
+            ${info.name ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--sep)"><small style="display:block;margin-bottom:2px">Account name</small><b style="font-size:.95rem">${esc(info.name)}</b></div>` : ""}</div>
+          <div class="fld"><label>Payment screenshot</label><div class="upload"><input type="file" accept="image/*" id="pfi">${proof ? `<img src="${proof}" alt="">` : `<div>${I("img")}<br>Tap to upload your payment screenshot</div>`}</div></div>
+          <div class="fld"><label>Reference (optional)</label><input class="in" id="pref" value="${esc(pref)}" placeholder="From the confirmation SMS"></div>` : ""}
+        ${tot > 0 && !direct ? `<div class="fld"><label>Pay with mobile money</label><div class="seg">${["MTN", "Airtel", "Zamtel"].map(p => `<button data-p="${p}" class="${p === pay ? "on" : ""}">${p}</button>`).join("")}</div></div>` : ""}
         <div class="tot"><span>Total</span><b>${tot ? money(tot) : "Free"}</b></div>
-        <button class="btn b" id="pay">${tot ? "Pay " + money(tot) : "Confirm booking"}</button>
-        <p class="hint c">${tot
-          ? "You'll receive a mobile money prompt on your phone to approve this payment."
-          : "No payment is needed for free tickets."}</p>
+        <button class="btn b" id="pay">${!tot ? "Confirm booking" : direct ? "Submit payment" : "Pay " + money(tot)}</button>
+        <p class="hint c">${!tot ? "No payment is needed for free tickets."
+          : direct ? "Your ticket is confirmed once the organiser approves your payment."
+          : "You'll receive a mobile money prompt on your phone to approve this payment."}</p>
         <p class="hint c">By booking you agree to our
           <a href="#" onclick="openPage('terms');return false" style="color:var(--ac)">Terms</a> and
           <a href="#" onclick="openPage('refunds');return false" style="color:var(--ac)">Refund Policy</a>.</p>`;
 
       g("#bn").oninput = x => { nm = x.target.value };
       g("#bp").oninput = x => { ph = x.target.value };
+
+      if (direct) {
+        const cpn = g("#cpn");
+        if (cpn) cpn.onclick = async () => { const ok = await copyText(info.phone); toast(ok ? "Number copied" : "Could not copy"); };
+        const pfi = g("#pfi");
+        if (pfi) pfi.onchange = ev => shrink(ev.target.files[0], 1100, u => { proof = u; draw(); });
+        const prefEl = g("#pref");
+        if (prefEl) prefEl.oninput = ev => { pref = ev.target.value };
+      }
 
       m.querySelectorAll("[data-ti]").forEach(b => {
         b.onclick = () => {
@@ -1196,65 +1346,71 @@ function buy(id) {
           draw();
         };
       });
-
       g("#qm").onclick = () => { if (qty > 1) { qty--; draw() } };
       g("#qp").onclick = () => {
         if (qty < Math.min(10, av)) { qty++; draw() }
         else toast(av < 10 ? "Only " + av + " left" : "Maximum 10 tickets per booking");
       };
-
-      m.querySelectorAll("[data-p]").forEach(b => {
-        b.onclick = () => { pay = b.dataset.p; draw() };
-      });
+      m.querySelectorAll("[data-p]").forEach(b => { b.onclick = () => { pay = b.dataset.p; draw() }; });
 
       g("#pay").onclick = async () => {
         if (nm.trim().length < 2) return toast("Enter your name");
         if (!isValidPhone(ph)) return toast("Enter a valid WhatsApp number");
+        if (direct && !proof) return toast("Upload a screenshot of your payment");
 
         const btn = g("#pay");
         btn.disabled = true;
         btn.innerHTML = '<span class="spin"></span>';
 
-        let referenceId = "";
+        const rpcArgs = method => ({
+          p_event_id: e.id, p_tier_name: t.name, p_qty: qty,
+          p_buyer_name: nm.trim(), p_buyer_phone: sanitizePhone(ph),
+          p_buyer_email: me.email || "", p_method: method
+        });
 
         try {
-          let tk;
-          if (tot > 0) {
-            if (tot < 50) throw new Error("Mobile money payments start at K50. Choose a larger quantity.");
+          let tk, referenceId = "";
 
-            referenceId = await startPayment({
-              eventId: e.id, tierName: t.name, qty,
-              name: nm.trim(), phone: ph, email: me.email || "", method: pay
-            });
-            btn.innerHTML = '<span class="spin"></span> Approve on your phone…';
-
-            const paid = await pollPayment(referenceId, st => {
-              if (st === "pending") btn.innerHTML = '<span class="spin"></span> Waiting for confirmation…';
-            });
-
-            if (paid.status === "refund_due") {
-              draw();
-              return toast("Payment received (ref " + referenceId + ") but these tickets sold out. Please contact support for a refund.");
-            }
-            if (paid.status !== "paid") {
-              draw();
-              return toast(paid.status === "failed"
-                ? "Payment was not completed. You have not been charged."
-                : "Payment is still pending. Approve it on your phone, then try again.");
-            }
-            tk = paid.ticket;
-          } else {
-            const { data, error: be } = await db.rpc("buy_ticket", {
-              p_event_id: e.id,
-              p_tier_name: t.name,
-              p_qty: qty,
-              p_buyer_name: nm.trim(),
-              p_buyer_phone: sanitizePhone(ph),
-              p_buyer_email: me.email || "",
-              p_method: ""
-            });
+          if (direct) {
+            const { data, error: be } = await db.rpc("buy_ticket", rpcArgs("Direct · " + info.network));
             if (be) { draw(); return toast(be.message); }
             tk = data;
+            const patch = { pay_status: "awaiting", pay_method: "direct", pay_proof: proof, pay_ref: pref.trim(), pay_submitted_at: new Date().toISOString() };
+            const { error: ue } = await db.from("tickets").update(patch).eq("id", tk.id);
+            if (ue) {
+              // never leave an unmarked ticket behind that could be scanned as paid
+              try { await db.from("tickets").delete().eq("id", tk.id); } catch { }
+              await releaseTickets(e.id, t.name, qty);
+              draw();
+              return toast(ue.message || "Could not submit your payment");
+            }
+            m.close();
+            await loadAll();
+            if ($("#detail").classList.contains("on")) openEv(e.id);
+            paymentPending({ ...tk, ...patch });
+            return;
+          }
+
+          if (tot > 0) {
+            if (tot < 50) throw new Error("Mobile money payments start at K50. Choose a larger quantity.");
+            referenceId = await startPayment({ amount: tot, name: nm.trim(), phone: ph });
+            btn.innerHTML = '<span class="spin"></span> Approve on your phone…';
+            const paid = await pollPayment(referenceId, st => { if (st === "pending") btn.innerHTML = '<span class="spin"></span> Waiting…'; });
+            if (paid.status !== "paid") {
+              draw();
+              return toast(paid.status === "failed" ? "Payment was not completed." : "Payment is still pending.");
+            }
+          }
+
+          const { data, error: be } = await db.rpc("buy_ticket", rpcArgs(tot > 0 ? pay : ""));
+          if (be) {
+            draw();
+            return toast(tot > 0 ? "Payment received (ref " + referenceId + ") but the ticket could not be issued: " + be.message + ". Please contact support." : be.message);
+          }
+          tk = data;
+          if (tot > 0) {
+            try { await db.from("tickets").update({ pay_status: "paid", pay_method: "app" }).eq("id", tk.id); } catch { }
+            tk = { ...tk, pay_status: "paid", pay_method: "app" };
           }
 
           m.close();
@@ -1274,7 +1430,7 @@ function buy(id) {
 
 function showTicket(t, fresh) {
   if (!t) return;
-  const m = sheet(sh(fresh ? "Booking confirmed" : "Your ticket") +
+  const m = sheet(sh(fresh ? "Booking confirmed" : "Your ticket") + ticketPayStrip(t) +
     `<div class="pass"><div class="pt"><span class="cat">${esc(t.tier)} · ${t.qty} ticket${t.qty > 1 ? "s" : ""}</span><h3>${esc(t.event_title)}</h3>
       <p>${I("cal")}${fdate(t.date)}</p><p>${I("clock")}${ftime(t.time)}</p>
       <p>${I("pin")}${esc(t.venue)}, ${esc(t.city)}</p><p>${I("user")}${esc(t.buyer_name)}</p></div>
@@ -1575,7 +1731,7 @@ function rTix() {
       <div class="th">${I("ticket")}</div>
       <div class="rb"><small>${esc(t.tier)} · ${t.qty} ticket${t.qty > 1 ? "s" : ""}</small><b>${esc(t.event_title)}</b>
       <span>${fdate(t.date)} · ${ftime(t.time)}</span><span>${esc(t.venue)}, ${esc(t.city)}</span>
-      <em style="color:var(--ac);font-family:ui-monospace,Menlo,monospace">${esc(t.code)}${t.used ? " ✓ Used" : adm(t) > 0 ? ` · ${adm(t)}/${t.qty} in` : ""}</em></div>
+      <em style="color:var(--ac);font-family:ui-monospace,Menlo,monospace">${esc(t.code)}${payTag(t)}${t.used ? " ✓ Used" : adm(t) > 0 ? ` · ${adm(t)}/${t.qty} in` : ""}</em></div>
       <button class="btn icon d" title="Delete ticket" onclick="delTix('${esc(t.id)}')">${I("trash")}</button></div>`).join("")}
   `).join("");
 
@@ -1633,6 +1789,7 @@ async function checkCode(code, evId) {
     const { data: t } = await db.from("tickets").select("*").eq("code", code).maybeSingle();
     if (!t) return { s: "nf" };
     if (t.event_id !== evId) return { s: "wrong", t };
+        if (t.pay_status === "awaiting" || t.pay_status === "declined") return { s: "unpaid", t };
     if (adm(t) >= t.qty) return { s: "used", t };
     return { s: "ok", t };
   } catch (e) { console.error("checkCode error:", e); return { s: "err", msg: "Could not check ticket" }; }
@@ -1657,6 +1814,7 @@ const res = (c, h, body, extra = "") => `<div class="res ${c}"><b>${h}</b><span>
 
 async function showRes(el, r, code, after) {
   const t = r.t;
+    if (r.s === "unpaid") return void (el.innerHTML = res("r", t.pay_status === "declined" ? "Payment declined" : "Payment not confirmed", `<b style="display:inline">${esc(t.buyer_name)}</b><br>${esc(t.tier)} · ${t.qty} ticket${t.qty > 1 ? "s" : ""}`));
   if (r.s === "nf") return void (el.innerHTML = res("r", "Ticket not found", `No ticket matches ${esc(code)}`));
   if (r.s === "wrong") return void (el.innerHTML = res("r", "Wrong event", `This ticket is for <b style="display:inline">${esc(t.event_title)}</b> on ${fdate(t.date)}`));
   if (r.s === "used") {
@@ -1726,7 +1884,7 @@ function drawRoster() {
     ${rows.length ? rows.map(t => {
       const a = adm(t);
       return `<div class="chk-tile" data-c="${esc(t.code)}"><div class="chk-tick ${a >= t.qty ? "" : a ? "part" : "off"}">${a >= t.qty ? "✓" : a || "·"}</div>
-      <div><b>${esc(t.buyer_name)}</b><br><small>${esc(t.tier)} · ${esc(t.code)}</small></div><span class="rt">${a}/${t.qty}</span></div>`;
+      <div><b>${esc(t.buyer_name)}</b><br><small>${esc(t.tier)} · ${esc(t.code)}${needsApproval(t) ? " · ⏳ unpaid" : ""}</small></div><span class="rt">${a}/${t.qty}</span></div>`;
     }).join("") : `<p class="hint c">${chRows.length ? "Nobody in this list" : "No tickets sold for this event yet"}</p>`}
     ${rows.length ? `<p class="hint c">Tap a person to check them in by hand.</p>` : ""}`;
 }
@@ -1934,7 +2092,7 @@ function rOrg() {
       <div class="kpi"><small>Gross sales</small><b>${money(gross)}</b></div>
       <div class="kpi"><small>Your share</small><b>${money(yourShare)}</b></div>
     </div>
-    ${planCardHTML()}
+    ${planCardHTML()}<div id="payApprove"></div>
     ${MINE.length ? `<h2 class="h2">Tickets sold per event</h2><div class="chart-container"><canvas id="orgChart"></canvas></div>` : ""}
     <h2 class="h2">Sales breakdown</h2>
     <div class="grp">
@@ -1977,6 +2135,7 @@ function rOrg() {
 
   drawOrgChart();
   autoSaveBackup();
+  loadPending();
 }
 
 function drawOrgChart() {
@@ -2042,13 +2201,14 @@ function openEditor(id) {
     const e = id ? MINE.find(x => x.id === id) : null;
     if (id && !e) return toast("Event not found");
 
-    const D = e
+       const D = e
       ? { title: e.title, category: e.category, city: e.city, venue: e.venue, date: e.date, time: e.time,
           desc: e.description || "", tagline: e.tagline || "", featured: !!e.featured,
-          featuredStatus: e.featured_status || (e.featured ? "approved" : "none") }
+          featuredStatus: e.featured_status || (e.featured ? "approved" : "none"),
+          payMethod: e.pay_method || "app", payNetwork: e.pay_network || "MTN", payPhone: e.pay_phone || "", payName: e.pay_name || "" }
       : { title: "", category: "", city: "", venue: "", date: "", time: "",
-          desc: "", tagline: "", featured: false, featuredStatus: "none" };
-
+          desc: "", tagline: "", featured: false, featuredStatus: "none",
+          payMethod: "app", payNetwork: "MTN", payPhone: "", payName: "" };
     const T = e ? e.tiers.map(t => ({ ...t })) : [{ name: "General Admission", price: "", qty: "", sold: 0 }];
     const PR = e ? (e.presenters || []).map(x => ({ ...x })) : [];
     let img = e ? e.img || "" : "";
@@ -2093,7 +2253,14 @@ function openEditor(id) {
           </label>
           <p class="hint">${featHint}</p>
         </div>
-
+                <h2 class="h2" style="margin-top:8px">Payments</h2>
+        <div class="seg"><button data-pm="app" class="${D.payMethod === "app" ? "on" : ""}">Through the app</button><button data-pm="direct" class="${D.payMethod === "direct" ? "on" : ""}">Direct to me</button></div>
+        ${D.payMethod === "direct"
+          ? `<div class="fld"><label>Network</label><div class="seg">${PAY_NETWORKS.map(n => `<button data-pn="${n}" class="${n === D.payNetwork ? "on" : ""}">${n}</button>`).join("")}</div></div>
+             <div class="fld"><label>Receiving number</label><input class="in" data-k="payPhone" type="tel" value="${esc(D.payPhone)}" placeholder="0977 123 456"></div>
+             <div class="fld"><label>Account name</label><input class="in" data-k="payName" value="${esc(D.payName)}"></div>
+             <p class="hint">Guests send money straight to you and upload a screenshot. You approve each payment in the Organise tab.</p>`
+          : `<p class="hint">Guests pay inside Tamba.Events and tickets are confirmed automatically.</p>`}
         <h2 class="h2" style="margin-top:8px">Tickets</h2>
         <p class="sub">Use 0 for free tickets. ${effFee() === 0 ? "No commission on your current plan." : "A " + effFee() + "% platform fee applies on your current plan."}</p>
         ${T.map((t, i) => `<div class="trow">
@@ -2118,6 +2285,8 @@ function openEditor(id) {
       m.querySelectorAll("[data-pr]").forEach(b => b.onclick = () => { PR.splice(+b.dataset.pr, 1); draw() });
       m.querySelectorAll("[data-pi]").forEach(i => i.onchange = () => shrink(i.files[0], 400, u => { PR[i.dataset.pi].img = u; draw() }));
       g("#ap").onclick = () => { PR.push({ name: "", role: "", img: "" }); draw() };
+            m.querySelectorAll("[data-pm]").forEach(b => b.onclick = () => { D.payMethod = b.dataset.pm; draw() });
+      m.querySelectorAll("[data-pn]").forEach(b => b.onclick = () => { D.payNetwork = b.dataset.pn; draw() });
       g("#fi").onchange = pick;
       g("#sv").onclick = save;
     };
@@ -2138,6 +2307,10 @@ function openEditor(id) {
         if (t.price === "" || +t.price < 0) return toast("Enter a valid price");
         if (t.qty === "" || +t.qty < 1) return toast("Enter a quantity");
         if (+t.qty < (t.sold || 0)) return toast(`"${t.name}" already has ${t.sold} sold`);
+      }
+      if (D.payMethod === "direct") {
+        if (!isValidPhone(D.payPhone)) return toast("Enter the receiving mobile money number");
+        if (D.payName.trim().length < 2) return toast("Enter the account name");
       }
       const btn = g("#sv");
       btn.disabled = true;
@@ -2184,10 +2357,14 @@ function openEditor(id) {
           featured_requested_at: requestedAt,
           tagline: D.tagline.trim(),
           presenters: PR.filter(x => String(x.name).trim()).map(x => ({ name: x.name.trim(), role: (x.role || "").trim(), img: x.img || "" })),
-          status: "live"
+                    status: "live",
+          pay_method: D.payMethod,
+          pay_network: D.payNetwork,
+          pay_phone: sanitizePhone(D.payPhone),
+          pay_name: D.payName.trim()
         };
-        const { error } = await (e ? db.from("events").update(ev).eq("id", ev.id) : db.from("events").insert(ev));
-        if (error) { btn.disabled = false; return toast(error.message) }
+                const { error } = await saveEventRow(ev, !!e);
+                 if (error) { btn.disabled = false; return toast(error.message) }
         m.close();
         toast(e ? "Event updated" : "Event published");
         await loadAll();
