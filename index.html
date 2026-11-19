@@ -337,7 +337,7 @@ async function paymentAuth() {
 }
 
 async function startPayment({ eventId, tierName, qty, name, phone, email, method }) {
-  const res = await fetch(PAYMENT_API + "/create-payment", {
+  const res = await fetch(PAYMENT_API + "api/create-payment", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await paymentAuth()) },
     body: JSON.stringify({ event_id: eventId, tier_name: tierName, qty, customer_name: name, phone, email, method })
