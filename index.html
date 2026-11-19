@@ -326,7 +326,7 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ---------- PAYMENTS (Lipila mobile money via /api) ----------
    The server works out the price and issues the ticket once Lipila confirms. */
-const PAYMENT_API = "/api";
+const PAYMENT_API = "api/create-payment";
 const PAYMENT_POLL_MS = 4000;
 const PAYMENT_TIMEOUT_MS = 180000;
 
