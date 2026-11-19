@@ -326,7 +326,7 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ---------- PAYMENTS (Lipila mobile money via /api) ----------
    The server works out the price and issues the ticket once Lipila confirms. */
-const PAYMENT_API = "api/create-payment";
+const PAYMENT_API = "/api";
 const PAYMENT_POLL_MS = 4000;
 const PAYMENT_TIMEOUT_MS = 180000;
 
@@ -337,7 +337,7 @@ async function paymentAuth() {
 }
 
 async function startPayment({ eventId, tierName, qty, name, phone, email, method }) {
-  const res = await fetch(PAYMENT_API + "api/create-payment", {
+  const res = await fetch(PAYMENT_API + "/create-payment", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await paymentAuth()) },
     body: JSON.stringify({ event_id: eventId, tier_name: tierName, qty, customer_name: name, phone, email, method })
