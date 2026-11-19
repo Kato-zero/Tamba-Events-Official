@@ -7,8 +7,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="description" content="Tamba.Events — discover events, buy tickets and check guests in.">
 <title>Tamba.Events</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -299,7 +299,8 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
   ✓ Scanner resource cleanup
   ✓ Chart instance management
   ✓ Faster local storage performance
-  ✓ Real Lipila mobile-money payments
+  ✓ Real mobile-money payments via Lipila (server-side pricing and ticket issue)
+  ✓ Event photos stored in Supabase Storage
   ✓ Event sharing (native share, copy link, WhatsApp)
   ✓ Deep links: ?event=<id> opens the event; back button closes it
   ✓ Featured approval workflow (organiser request → admin approve/decline)
@@ -307,81 +308,57 @@ select.in{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
   ✓ Static pages: Terms, Refunds, Privacy, Organiser Agreement, FAQ, About
   ✓ Deep links for pages: ?page=terms (and back button works)
   ✓ Show/hide password toggle on all password fields
-  ✓ Forgot password + set-new-password flow (Supabase recovery)
+  ✓ Forgot password + set-new-password flow
   ✓ "Change password" from the Account page
   ✓ Organiser subscription plans (commission / monthly / hybrid)
+  ✓ Plan changes need admin approval; new organisers start on Starter
+  ✓ Ticket downloads as PNG images, plus organiser backups (CSV, JSON, on-device copy)
+  ✓ Connected to Supabase (accounts, events, tickets, payouts, plan requests)
   ✓ Plan pricing + commission now sync from settings (admin changes propagate)
   ===================================*/
 
-const SUPABASE_URL = "https://lqztzsacjmmibstjarzd.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxxenR6c2Fjam1taWJzdGphcnpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5MDczMjYsImV4cCI6MjExMDQ4MzMyNn0.s3akZqx7oRctDX0hqFLO5FeZ4TCegiYq6H3ktSPnG-8";
-const USE_LOCAL = false;
-const sb = USE_LOCAL ? localSb() : supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+/* ---------- SUPABASE CONNECTION ----------
+   Paste your project values from: Supabase Dashboard -> Project Settings -> API.
+   The anon key is safe to publish; the database rules (RLS) protect the data. */
+const SUPABASE_URL = "https://xlvogxsguufkhpnefrfy.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhsdm9neHNndXVma2hwbmVmcmZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUwODQzMDIsImV4cCI6MjExMDY2MDMwMn0.0ov9lsRGmxGuwj948kgEmiTH60RmFGN1gwf4AXWU7uU";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-/* ---------- PAYMENTS (Lipila mobile money via /api) ---------- */
-const PAY = {
-  create: "/api/createpayment",
-  status: "/api/checkpayment",
-  pollMs: 4000,
-  timeoutMs: 120000
-};
+/* ---------- PAYMENTS (Lipila mobile money via /api) ----------
+   The server works out the price and issues the ticket once Lipila confirms. */
+const PAYMENT_API = "/api";
+const PAYMENT_POLL_MS = 4000;
+const PAYMENT_TIMEOUT_MS = 180000;
 
-function paymentState(resp) {
-  const root = resp && typeof resp === "object" ? resp : {};
-  const body = root.data && typeof root.data === "object" ? root.data : root;
-  const vals = [];
-  const scan = (o, depth) => {
-    if (!o || typeof o !== "object" || depth > 3) return;
-    for (const [k, v] of Object.entries(o)) {
-      if (typeof v === "string" && /status|state|result/i.test(k)) vals.push(v);
-      else if (v && typeof v === "object") scan(v, depth + 1);
-    }
-  };
-  scan(body, 0);
-  const s = vals.join(" ").toLowerCase();
-  if (/\b(successful|success|succeeded|completed|complete|paid|approved|collected)\b/.test(s)) return "paid";
-  if (/\b(failed|failure|declined|decline|cancelled|canceled|rejected|expired|reversed|insufficient|invalid)\b/.test(s)) return "failed";
-  return "pending";
+async function paymentAuth() {
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) throw new Error("Please sign in again to pay for tickets.");
+  return { Authorization: "Bearer " + session.access_token };
 }
 
-async function startPayment({ amount, name, phone }) {
-  let r;
-  try {
-    r = await fetch(PAY.create, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ amount, customer_name: name, phone })
-    });
-  } catch (e) {
-    throw new Error("Could not reach the payment service. Check your connection and try again.");
-  }
-  let data = null;
-  try { data = await r.json() } catch { data = null }
-  if (!r.ok || !data || !data.success || !data.referenceId) {
-    throw new Error((data && data.message) || "Could not start the payment. Please try again.");
-  }
+async function startPayment({ eventId, tierName, qty, name, phone, email, method }) {
+  const res = await fetch(PAYMENT_API + "/create-payment", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await paymentAuth()) },
+    body: JSON.stringify({ event_id: eventId, tier_name: tierName, qty, customer_name: name, phone, email, method })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) throw new Error(data.message || "Could not start the payment.");
   return data.referenceId;
 }
 
 async function pollPayment(referenceId, onUpdate) {
   const started = Date.now();
-  let tries = 0;
-  while (Date.now() - started < PAY.timeoutMs) {
-    await new Promise(r => setTimeout(r, tries === 0 ? 2500 : PAY.pollMs));
-    tries++;
-    let resp = null;
-    try {
-      const r = await fetch(PAY.status + "?referenceId=" + encodeURIComponent(referenceId), {
-        headers: { accept: "application/json" }
-      });
-      resp = await r.json().catch(() => null);
-    } catch (e) {
-      console.warn("Payment status check failed:", e);
-    }
-    const st = paymentState(resp);
-    if (onUpdate) onUpdate(st);
-    if (st === "paid") return { status: "paid", referenceId, response: resp };
-    if (st === "failed") return { status: "failed", referenceId, response: resp };
+  while (Date.now() - started < PAYMENT_TIMEOUT_MS) {
+    await new Promise(r => setTimeout(r, PAYMENT_POLL_MS));
+    const res = await fetch(`${PAYMENT_API}/check-payment-status?referenceId=${encodeURIComponent(referenceId)}`, {
+      headers: await paymentAuth()
+    });
+    const data = await res.json().catch(() => ({ state: "pending" }));
+    if (data.state === "successful") return { status: "paid", referenceId, ticket: data.ticket };
+    if (data.state === "failed") return { status: "failed", referenceId };
+    if (data.state === "refund_due") return { status: "refund_due", referenceId, message: data.message };
+    if (onUpdate) onUpdate("pending");
   }
   return { status: "pending", referenceId };
 }
@@ -420,6 +397,7 @@ const P = {
 const I = (n, c = "") => `<svg class="i ${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
 
 let me = null, ALL = [], MINE = [], TIX = [], SAVED = [], fee = 5, openEvId = null;
+let PLAN_REQUESTS = [];
 let cat = "", city = "", dateF = "", priceF = "", q = "", psT = null, chartInst = null;
 let qSearchTimeout = null;
 
@@ -452,129 +430,20 @@ const SAMPLES = [
   status: "live"
 }));
 
-/* ---------- LOCALSTORAGE BACKEND (only used when USE_LOCAL=true) ---------- */
-function localSb() {
-  const K = "tz_", SEED = "3", now = () => new Date().toISOString();
-  const rd = (t, d) => {
-    try {
-      const v = localStorage.getItem(K + t);
-      return v ? JSON.parse(v) : d;
-    } catch (e) {
-      console.warn("localStorage read failed:", e);
-      return d;
-    }
-  };
-  const wr = (t, v) => {
-    try {
-      const s = JSON.stringify(v);
-      if (s.length > 5242880) { console.warn("Skipping write - data too large"); return false; }
-      localStorage.setItem(K + t, s);
-      return true;
-    } catch (e) {
-      if (e.name === "QuotaExceededError") { console.warn("localStorage quota exceeded"); return false; }
-      console.warn("localStorage write failed:", e);
-      return false;
-    }
-  };
-
-  let seeded = false;
-  const seed = () => {
-    if (seeded) return;
-    seeded = true;
-    let ev = rd("events", []);
-    if (localStorage.getItem(K + "seeded") !== SEED) ev = SAMPLES.map(({ demo, ...e }) => e);
-    ev = ev.map(e => { const s = SAMPLES.find(z => z.id === e.id); return s ? { ...e, date: s.date } : e });
-    wr("events", ev);
-    wr("seeded", SEED);
-  };
-
-  function from(table) {
-    let op = "select", fl = [], ord = null, pl = null, one = null;
-    const b = {
-      select() { return b },
-      eq(c, v) { fl.push(r => r[c] === v); return b },
-      neq(c, v) { fl.push(r => r[c] !== v); return b },
-      order(c, o) { ord = [c, o && o.ascending === false]; return b },
-      single() { one = "single"; return b },
-      maybeSingle() { one = "maybe"; return b },
-      insert(p) { op = "insert"; pl = p; return b },
-      update(p) { op = "update"; pl = p; return b },
-      upsert(p) { op = "upsert"; pl = p; return b },
-      delete() { op = "delete"; return b },
-      then(res, rej) {
-        try { return Promise.resolve(run()).then(res, rej); }
-        catch (e) { return Promise.reject(e); }
-      }
-    };
-    function run() {
-      if (table === "events") seed();
-      let rows = table === "settings" ? [{ id: 1, fee: 5 }] : rd(table, []);
-      const hit = r => fl.every(f => f(r));
-      if (op === "insert") {
-        const add = [].concat(pl).map(r => ({ ...r, created_at: now() }));
-        if (!wr(table, [...rows, ...add])) return { data: null, error: { message: "Storage quota exceeded" } };
-        return { data: add, error: null };
-      }
-      if (op === "upsert") {
-        const i = rows.findIndex(r => r.id === pl.id);
-        if (i >= 0) rows[i] = { ...rows[i], ...pl }; else rows.push({ ...pl, created_at: now() });
-        if (!wr(table, rows)) return { data: null, error: { message: "Storage quota exceeded" } };
-        return { data: [pl], error: null };
-      }
-      if (op === "update") {
-        if (!wr(table, rows.map(r => hit(r) ? { ...r, ...pl } : r))) return { data: null, error: { message: "Storage quota exceeded" } };
-        return { data: null, error: null };
-      }
-      if (op === "delete") {
-        if (!wr(table, rows.filter(r => !hit(r)))) return { data: null, error: { message: "Storage quota exceeded" } };
-        return { data: null, error: null };
-      }
-      const out = rows.filter(hit);
-      if (ord) out.sort((x, y) => (x[ord[0]] > y[ord[0]] ? 1 : -1) * (ord[1] ? -1 : 1));
-      if (one) return out.length ? { data: out[0], error: null } : { data: null, error: one === "single" ? { message: "Not found" } : null };
-      return { data: out, error: null };
-    }
-    return b;
-  }
-  return {
-    from,
-    async rpc(fn, a) {
-      if (fn === "buy_ticket") {
-        seed();
-        const ev = rd("events", []), e = ev.find(x => x.id === a.p_event_id), t = e && e.tiers.find(x => x.name === a.p_tier_name);
-        if (!t) return { error: { message: "Ticket type not found" } };
-        if (t.qty - t.sold < a.p_qty) return { error: { message: "Not enough tickets left" } };
-        t.sold += a.p_qty;
-        if (!wr("events", ev)) return { error: { message: "Storage quota exceeded" } };
-        return { data: null, error: null };
-      }
-      return { data: null, error: null };
-    },
-    auth: {
-      async getSession() { return { data: { session: rd("session", null) } } },
-      async signUp({ email, password, options }) {
-        const us = rd("users", []);
-        if (us.some(u => u.email === email)) return { data: { user: null }, error: { message: "An account with this email already exists" } };
-        const u = { id: "u_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), email, password, name: options?.data?.name || "" };
-        if (!wr("users", [...us, u])) return { data: { user: null }, error: { message: "Storage quota exceeded" } };
-        if (!wr("session", { user: { id: u.id, email } })) return { data: { user: null }, error: { message: "Storage quota exceeded" } };
-        return { data: { user: { id: u.id } }, error: null };
-      },
-      async signInWithPassword({ email, password }) {
-        const u = rd("users", []).find(x => x.email === email && x.password === password);
-        if (!u) return { error: { message: "Incorrect email or password" } };
-        if (!wr("session", { user: { id: u.id, email } })) return { error: { message: "Storage quota exceeded" } };
-        return { error: null };
-      },
-      async signOut() { localStorage.removeItem(K + "session"); return {} },
-      onAuthStateChange() { },
-      async resetPasswordForEmail() { return { error: { message: "Password reset requires a live Supabase backend." } } },
-      async updateUser() { return { error: { message: "Password update requires a live Supabase backend." } } }
-    }
-  };
-}
 
 /* ---------- IMAGE HELPERS ---------- */
+/* Uploads a resized photo to the public "event-photos" bucket and returns its link. */
+async function uploadPhoto(blob) {
+  if (!me) throw new Error("Not signed in");
+  const path = `${me.id}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  const { error } = await db.storage.from("event-photos").upload(path, blob, {
+    contentType: "image/jpeg",
+    cacheControl: "31536000"
+  });
+  if (error) throw new Error(error.message);
+  return db.storage.from("event-photos").getPublicUrl(path).data.publicUrl;
+}
+
 const pimg = n => {
   const h = [...n].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   const ini = n.split(/\s+/).filter(w => /^[A-Za-z]/.test(w)).slice(0, 2).map(w => w[0].toUpperCase()).join("");
@@ -596,8 +465,11 @@ function shrink(f, max, cb) {
       const cx = c.getContext("2d");
       if (!cx) return toast("Canvas rendering failed");
       cx.drawImage(im, 0, 0, c.width, c.height);
-      try { cb(c.toDataURL("image/jpeg", .8)); }
-      catch (e) { console.error("Image encoding error:", e); toast("Could not encode image"); }
+      c.toBlob(async blob => {
+        if (!blob) return toast("Could not encode image");
+        try { cb(await uploadPhoto(blob)); }
+        catch (err) { console.error("Photo upload error:", err); toast("Could not upload the photo. Please try again."); }
+      }, "image/jpeg", 0.8);
     };
     im.onerror = () => toast("Could not read that image");
     im.src = x.target.result;
@@ -667,16 +539,16 @@ function toggleSave(id) {
 /* ---------- AUTH ---------- */
 async function loadMe() {
   try {
-    const { data: { session } } = await sb.auth.getSession();
+    const { data: { session } } = await db.auth.getSession();
     if (!session) { me = null; return }
-    const { data: p, error } = await sb.from("profiles").select("*").eq("id", session.user.id).single();
+    const { data: p, error } = await db.from("profiles").select("*").eq("id", session.user.id).single();
     if (error || !p) {
-      try { await sb.auth.signOut() } catch { }
+      try { await db.auth.signOut() } catch { }
       me = null;
       return;
     }
     if (p.suspended) {
-      try { await sb.auth.signOut() } catch { }
+      try { await db.auth.signOut() } catch { }
       me = null;
       toast("This account has been suspended");
       return;
@@ -789,7 +661,7 @@ function openAuth(after, startMode = "login") {
       btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
       try {
         const redirectTo = location.origin + location.pathname;
-        const { error } = await sb.auth.resetPasswordForEmail(e, { redirectTo });
+        const { error } = await db.auth.resetPasswordForEmail(e, { redirectTo });
         btn.disabled = false; btn.textContent = "Send reset link";
         if (error) return toast(error.message);
         m.close();
@@ -808,7 +680,7 @@ function openAuth(after, startMode = "login") {
       if (np !== cp) return toast("Passwords do not match");
       btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
       try {
-        const { error } = await sb.auth.updateUser({ password: np });
+        const { error } = await db.auth.updateUser({ password: np });
         btn.disabled = false; btn.textContent = "Update password";
         if (error) return toast(error.message);
         m.close();
@@ -839,7 +711,7 @@ function openAuth(after, startMode = "login") {
       if (pw.length < 8) return toast("Password must be at least 8 characters");
       btn.disabled = true;
       try {
-        const { data, error } = await sb.auth.signUp({
+        const { data, error } = await db.auth.signUp({
           email: e, password: pw,
           options: { data: { name: n, phone: sanitizePhone(p), role } }
         });
@@ -867,7 +739,7 @@ function openAuth(after, startMode = "login") {
     if (!pw) return toast("Enter your password");
     btn.disabled = true;
     try {
-      const { error } = await sb.auth.signInWithPassword({ email: e, password: pw });
+      const { error } = await db.auth.signInWithPassword({ email: e, password: pw });
       if (error) { btn.disabled = false; return toast(error.message) }
       await loadMe();
       if (!me) { btn.disabled = false; return toast("Could not load your profile") }
@@ -890,8 +762,8 @@ function openAuth(after, startMode = "login") {
 async function loadAll() {
   try {
     const [{ data: ev }, { data: st }] = await Promise.all([
-      sb.from("events").select("*").neq("status", "suspended").order("date"),
-      sb.from("settings").select("*").eq("id", 1).maybeSingle()
+      db.from("events").select("*").neq("status", "suspended").order("date"),
+      db.from("settings").select("*").eq("id", 1).maybeSingle()
     ]);
     if (ev) ALL = ev;
 
@@ -909,12 +781,14 @@ async function loadAll() {
       PLANS.pro.tagline     = `${PLANS.pro.price     ? "ZMW " + PLANS.pro.price     + " / month" : "Free"} · ${PLANS.pro.feePct}% per sale`;
     }
 
+    const { data: prs } = await db.from("plan_requests").select("*").order("created_at", { ascending: false });
+    PLAN_REQUESTS = prs || [];
     ALL = ALL.filter(e => !e.demo);
-    if (SHOW_SAMPLES && !USE_LOCAL) ALL = [...ALL, ...SAMPLES];
+    if (SHOW_SAMPLES) ALL = [...ALL, ...SAMPLES];
     if (me) {
       const [{ data: my }, { data: tk }] = await Promise.all([
-        sb.from("events").select("*").eq("owner", me.id),
-        sb.from("tickets").select("*").eq("user_id", me.id).order("created_at", { ascending: false })
+        db.from("events").select("*").eq("owner", me.id),
+        db.from("tickets").select("*").eq("user_id", me.id).order("created_at", { ascending: false })
       ]);
       MINE = my || [];
       TIX = tk || [];
@@ -1344,44 +1218,43 @@ function buy(id) {
         let referenceId = "";
 
         try {
+          let tk;
           if (tot > 0) {
-            referenceId = await startPayment({ amount: tot, name: nm.trim(), phone: ph });
+            if (tot < 50) throw new Error("Mobile money payments start at K50. Choose a larger quantity.");
+
+            referenceId = await startPayment({
+              eventId: e.id, tierName: t.name, qty,
+              name: nm.trim(), phone: ph, email: me.email || "", method: pay
+            });
             btn.innerHTML = '<span class="spin"></span> Approve on your phone…';
+
             const paid = await pollPayment(referenceId, st => {
               if (st === "pending") btn.innerHTML = '<span class="spin"></span> Waiting for confirmation…';
             });
+
+            if (paid.status === "refund_due") {
+              draw();
+              return toast("Payment received (ref " + referenceId + ") but these tickets sold out. Please contact support for a refund.");
+            }
             if (paid.status !== "paid") {
               draw();
               return toast(paid.status === "failed"
                 ? "Payment was not completed. You have not been charged."
                 : "Payment is still pending. Approve it on your phone, then try again.");
             }
-            btn.innerHTML = '<span class="spin"></span> Issuing ticket…';
-          }
-
-          const { error: be } = await sb.rpc("buy_ticket", { p_event_id: e.id, p_tier_name: t.name, p_qty: qty });
-          if (be) {
-            draw();
-            return toast(referenceId
-              ? "Payment received (ref " + referenceId + ") but the tickets just sold out. Please contact support for a refund."
-              : be.message);
-          }
-
-          const tk = {
-            id: uid("tk_"),
-            code: "TZ-" + Math.random().toString(36).slice(2, 10).toUpperCase(),
-            event_id: e.id, event_title: e.title, date: e.date, time: e.time, venue: e.venue, city: e.city,
-            tier: t.name, price: +t.price, qty, total: tot,
-            buyer_name: nm.trim(), buyer_email: me.email || "", buyer_phone: sanitizePhone(ph),
-            user_id: me.id, method: tot > 0 ? pay : "", used: false, admitted: 0
-          };
-
-          const { error: te } = await sb.from("tickets").insert(tk);
-          if (te) {
-            draw();
-            return toast(referenceId
-              ? "Payment received (ref " + referenceId + ") but we could not issue the ticket. Please contact support."
-              : te.message);
+            tk = paid.ticket;
+          } else {
+            const { data, error: be } = await db.rpc("buy_ticket", {
+              p_event_id: e.id,
+              p_tier_name: t.name,
+              p_qty: qty,
+              p_buyer_name: nm.trim(),
+              p_buyer_phone: sanitizePhone(ph),
+              p_buyer_email: me.email || "",
+              p_method: ""
+            });
+            if (be) { draw(); return toast(be.message); }
+            tk = data;
           }
 
           m.close();
@@ -1407,7 +1280,7 @@ function showTicket(t, fresh) {
       <p>${I("pin")}${esc(t.venue)}, ${esc(t.city)}</p><p>${I("user")}${esc(t.buyer_name)}</p></div>
       <div class="pc"><small style="color:var(--t2)">Ticket code</small><div class="code">${esc(t.code)}</div><div class="qr" id="qr"></div><br>
       <small style="color:var(--t2)">${t.total === 0 ? "Free" : "Paid " + money(t.total) + (t.method ? " via " + esc(t.method) : "")}</small></div>
-      <div style="display:flex;gap:8px;padding:0 16px 16px"><button class="btn s b" id="gift">${I("share")}Gift ticket</button></div></div>
+      <div style="display:flex;gap:8px;padding:0 16px 16px"><button class="btn s b" id="gift">${I("share")}Gift ticket</button><button class="btn s b" id="dlt">Download ticket</button></div></div>
     ${fresh ? `<button class="btn b" id="vt">View my tickets</button>` : `<button class="btn s b" data-x>Close</button>`}`);
 
   const qrDiv = m.querySelector("#qr");
@@ -1418,8 +1291,248 @@ function showTicket(t, fresh) {
   } catch (e) { console.warn("QR render failed:", e); qrDiv.textContent = t.code; }
 
   m.querySelector("#gift").onclick = () => giftTicket(t, m);
+  m.querySelector("#dlt").onclick = () => downloadTicket(t);
   const b = m.querySelector("#vt");
   if (b) b.onclick = () => { m.close(); closeEv(); go("tix") };
+}
+
+/* ---------- TICKET DOWNLOADS & BACKUPS ---------- */
+function saveTextFile(name, text, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+const safeName = s => (String(s || "").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "event");
+const fileStamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+function wrapLines(c, text, maxW) {
+  const words = String(text || "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && c.measureText(test).width > maxW) { lines.push(line); line = w; }
+    else line = test;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function makeQrCanvas(text, size) {
+  if (typeof QRCode === "undefined" || !text) return null;
+  try {
+    const holder = document.createElement("div");
+    new QRCode(holder, { text, width: size, height: size, colorDark: "#000000", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.H });
+    return holder.querySelector("canvas");
+  } catch (e) { console.warn("QR for ticket image failed:", e); return null; }
+}
+
+/* Draws the ticket as a PNG-ready canvas: event, details, QR and code. */
+function drawTicketCanvas(t) {
+  const W = 800, H = 1240, X = 72, CW = W - 144;
+  const cv = document.createElement("canvas");
+  cv.width = W;
+  cv.height = H;
+  const c = cv.getContext("2d");
+  const FONT = '-apple-system, "SF Pro Text", Inter, "Segoe UI", Roboto, Arial, sans-serif';
+
+  const bg = c.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#FFCC00");
+  bg.addColorStop(1, "#FF9500");
+  c.fillStyle = bg;
+  c.fillRect(0, 0, W, H);
+
+  roundRect(c, 40, 40, W - 80, H - 80, 40);
+  c.fillStyle = "#ffffff";
+  c.fill();
+
+  let y = 110;
+  c.textAlign = "left";
+  c.textBaseline = "alphabetic";
+
+  c.fillStyle = "#8E8E93";
+  c.font = `700 24px ${FONT}`;
+  c.fillText("TAMBA.EVENTS", X, y);
+
+  y += 56;
+  const qty = t.qty || 1;
+  const tierTxt = `${t.tier || "Ticket"} · ${qty} ticket${qty > 1 ? "s" : ""}`;
+  c.font = `700 26px ${FONT}`;
+  const pillW = c.measureText(tierTxt).width + 36;
+  roundRect(c, X, y - 34, pillW, 48, 24);
+  c.fillStyle = "rgba(0,122,255,0.12)";
+  c.fill();
+  c.fillStyle = "#007AFF";
+  c.fillText(tierTxt, X + 18, y);
+
+  y += 80;
+  c.fillStyle = "#000000";
+  c.font = `800 50px ${FONT}`;
+  for (const line of wrapLines(c, t.event_title || "Event", CW)) {
+    c.fillText(line, X, y);
+    y += 62;
+  }
+
+  y += 16;
+  const rows = [
+    ["DATE", `${fdate(t.date)}${t.time ? " · " + t.time : ""}`],
+    ["VENUE", `${t.venue || ""}${t.city ? ", " + t.city : ""}`],
+    ["NAME", t.buyer_name || ""]
+  ];
+  for (const [label, value] of rows) {
+    c.fillStyle = "#8E8E93";
+    c.font = `700 20px ${FONT}`;
+    c.fillText(label, X, y);
+    y += 36;
+    c.fillStyle = "#000000";
+    c.font = `600 30px ${FONT}`;
+    for (const line of wrapLines(c, value, CW)) {
+      c.fillText(line, X, y);
+      y += 40;
+    }
+    y += 14;
+  }
+
+  y += 10;
+  c.strokeStyle = "#C7C7CC";
+  c.lineWidth = 3;
+  c.setLineDash([12, 10]);
+  c.beginPath();
+  c.moveTo(X, y);
+  c.lineTo(W - X, y);
+  c.stroke();
+  c.setLineDash([]);
+
+  const QR = 300;
+  const qrY = y + 50;
+  const qrX = (W - QR) / 2;
+  const qr = makeQrCanvas(t.code, QR);
+  if (qr) c.drawImage(qr, qrX, qrY, QR, QR);
+  else {
+    c.fillStyle = "#F2F2F7";
+    c.fillRect(qrX, qrY, QR, QR);
+  }
+
+  c.textAlign = "center";
+  y = qrY + QR + 70;
+  c.fillStyle = "#000000";
+  c.font = `700 40px "Menlo", "Consolas", "Courier New", monospace`;
+  c.fillText(t.code || "", W / 2, y);
+
+  y += 50;
+  c.fillStyle = "#3C3C43";
+  c.font = `600 26px ${FONT}`;
+  c.fillText(t.total ? `Paid ZMW ${Number(t.total).toLocaleString()}${t.method ? " via " + t.method : ""}` : "Free entry", W / 2, y);
+
+  y += 44;
+  c.fillStyle = "#8E8E93";
+  c.font = `400 22px ${FONT}`;
+  c.fillText("Show this code or QR at the gate", W / 2, y);
+  c.textAlign = "left";
+  return cv;
+}
+
+function downloadTicket(t) {
+  const cv = drawTicketCanvas(t);
+  cv.toBlob(blob => {
+    if (!blob) return toast("Could not create the ticket image");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `ticket-${safeName(t.event_title)}-${t.code}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast("Ticket image downloaded");
+  }, "image/png");
+}
+
+function downloadEventList(e, rows) {
+  if (!rows.length) return toast("No bookings to download yet");
+  const head = ["code", "buyer_name", "buyer_phone", "buyer_email", "tier", "qty", "total", "method", "admitted", "booked_at"];
+  const body = rows.map(b => [b.code, b.buyer_name, b.buyer_phone, b.buyer_email, b.tier, b.qty, b.total, b.method, adm(b), b.created_at || ""]);
+  const csv = [head, ...body].map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  saveTextFile(`${safeName(e.title)}-tickets-${fileStamp()}.csv`, csv, "text/csv");
+  toast("Ticket list downloaded");
+}
+
+function eventBackupData(e, rows) {
+  return {
+    backup_version: 1,
+    created_at: new Date().toISOString(),
+    event: { id: e.id, title: e.title, date: e.date, time: e.time, venue: e.venue, city: e.city, tiers: e.tiers || [] },
+    bookings: rows.map(b => ({
+      code: b.code, buyer_name: b.buyer_name, buyer_phone: b.buyer_phone, buyer_email: b.buyer_email,
+      tier: b.tier, qty: b.qty, total: b.total, method: b.method, admitted: adm(b), booked_at: b.created_at || ""
+    }))
+  };
+}
+
+function downloadEventBackup(e, rows) {
+  saveTextFile(`${safeName(e.title)}-backup-${fileStamp()}.json`, JSON.stringify(eventBackupData(e, rows), null, 2), "application/json");
+  toast("Event backup downloaded");
+}
+
+async function organiserBackupData() {
+  const ids = new Set(MINE.map(e => e.id));
+  const { data: tk } = await db.from("tickets").select("*").order("created_at", { ascending: false });
+  const all = (tk || []).filter(b => ids.has(b.event_id));
+  return {
+    backup_version: 1,
+    created_at: new Date().toISOString(),
+    organiser: { name: me.name || "", email: me.email || "", phone: me.phone || "" },
+    events: MINE.map(e => ({
+      id: e.id, title: e.title, date: e.date, time: e.time, venue: e.venue, city: e.city, tiers: e.tiers || [],
+      bookings: eventBackupData(e, all.filter(b => b.event_id === e.id)).bookings
+    }))
+  };
+}
+
+/* Keeps a copy of the organiser's events and bookings on this device (localStorage). */
+async function autoSaveBackup() {
+  if (!me || !isOrg()) return;
+  try {
+    const data = await organiserBackupData();
+    localStorage.setItem("tz_backup_" + me.id, JSON.stringify(data));
+  } catch (e) { console.warn("Auto-backup failed:", e); }
+}
+
+function backupCardHTML() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("tz_backup_" + me.id) || "null"); } catch { saved = null; }
+  const when = saved && saved.created_at ? new Date(saved.created_at).toLocaleString("en-ZM", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "";
+  return `<h2 class="h2">Ticket backup</h2>
+    <div class="grp">
+      <div class="gi"><span>Saved on this device<small>${saved ? "Last updated " + esc(when) : "Not saved yet. Open this tab once to create it."}</small></span>
+        <span class="sp"><button class="btn s sm" onclick="downloadOrganiserBackup()">Download</button></span></div>
+    </div>`;
+}
+
+async function downloadOrganiserBackup() {
+  try {
+    const data = await organiserBackupData();
+    localStorage.setItem("tz_backup_" + me.id, JSON.stringify(data));
+    saveTextFile(`tamba-backup-${fileStamp()}.json`, JSON.stringify(data, null, 2), "application/json");
+    toast("Backup downloaded");
+  } catch (e) {
+    console.error("Backup failed:", e);
+    toast("Could not create backup");
+  }
 }
 
 function giftTicket(t, parent) {
@@ -1477,7 +1590,7 @@ async function delTix(id) {
   if (!t) return;
   if (!confirm(`Delete your ticket for ${t.event_title}?\n\nTicket: ${t.code}`)) return;
   try {
-    await sb.from("tickets").delete().eq("id", id);
+    await db.from("tickets").delete().eq("id", id);
     await loadAll();
     rTix();
     toast("Ticket deleted");
@@ -1517,7 +1630,7 @@ function rChk() {
 
 async function checkCode(code, evId) {
   try {
-    const { data: t } = await sb.from("tickets").select("*").eq("code", code).maybeSingle();
+    const { data: t } = await db.from("tickets").select("*").eq("code", code).maybeSingle();
     if (!t) return { s: "nf" };
     if (t.event_id !== evId) return { s: "wrong", t };
     if (adm(t) >= t.qty) return { s: "used", t };
@@ -1527,14 +1640,14 @@ async function checkCode(code, evId) {
 
 async function admit(id, n) {
   try {
-    const { data: f } = await sb.from("tickets").select("*").eq("id", id).single();
+    const { data: f } = await db.from("tickets").select("*").eq("id", id).single();
     if (!f) return { err: "Ticket not found" };
     const rem = f.qty - adm(f);
     if (rem <= 0) return { s: "used", t: f };
     n = Math.min(n, rem);
     const a = adm(f) + n;
     const u = { admitted: a, used: a >= f.qty, used_at: new Date().toISOString() };
-    const { error } = await sb.from("tickets").update(u).eq("id", id);
+    const { error } = await db.from("tickets").update(u).eq("id", id);
     if (error) return { err: error.message };
     return { s: "done", t: { ...f, ...u }, n };
   } catch (e) { console.error("admit error:", e); return { err: "An error occurred" }; }
@@ -1590,7 +1703,7 @@ async function refreshRoster() {
   if (tab !== "chk" || !$("#chlist")) return;
   if (!chEv) { chRows = []; return void ($("#chlist").innerHTML = "") }
   try {
-    const { data } = await sb.from("tickets").select("*").eq("event_id", chEv);
+    const { data } = await db.from("tickets").select("*").eq("event_id", chEv);
     chRows = data || [];
   } catch (e) { console.error("refreshRoster error:", e); return; }
   drawRoster();
@@ -1837,6 +1950,7 @@ function rOrg() {
     ${PAYOUTS.length ? `<h2 class="h2">Payout requests</h2><div class="grp">${PAYOUTS.map(p =>
       `<div class="gi"><span>${money(p.amount)}<small>${esc(p.network)} · ${esc(p.phone)} · ${fdate((p.created_at || "").slice(0, 10))}</small></span>
        <span class="sp"><span class="pay-status ps-${esc(p.status)}">${PAY_LABEL[p.status] || esc(p.status)}</span></span></div>`).join("")}</div>` : ""}
+    ${backupCardHTML()}
     <button class="btn b" style="margin:12px 0 4px" onclick="openEditor()">${I("plus")}New event</button>
     ${MINE.length ? MINE.map(e => {
       const s = (e.tiers || []).reduce((a, t) => a + t.sold, 0);
@@ -1862,6 +1976,7 @@ function rOrg() {
       <a href="#" onclick="openPage('organisers');return false" style="color:var(--ac)">Organiser Agreement</a>.</p>`;
 
   drawOrgChart();
+  autoSaveBackup();
 }
 
 function drawOrgChart() {
@@ -1893,13 +2008,17 @@ async function sales(id) {
   const e = MINE.find(x => x.id === id);
   if (!e) return;
   try {
-    const { data: l } = await sb.from("tickets").select("*").eq("event_id", id).order("created_at", { ascending: false });
-    sheet(sh("Attendees", esc(e.title)) +
+    const { data: l } = await db.from("tickets").select("*").eq("event_id", id).order("created_at", { ascending: false });
+    const m = sheet(sh("Attendees", esc(e.title)) +
       `<div class="grp">${(e.tiers || []).map(t => `<div class="gi"><span>${esc(t.name)}</span><span class="sp">${t.sold} / ${t.qty}</span></div>`).join("")}</div>
        <h2 class="h2">Bookings</h2>
        ${(l || []).length
         ? `<div class="grp">${l.map(t => `<div class="gi"><span>${esc(t.buyer_name)}<small>${esc(t.buyer_email)} · ${esc(t.buyer_phone)}</small></span><span class="sp">${t.qty} × ${esc(t.tier)}<small>${esc(t.code)}${t.used ? " ✓" : adm(t) > 0 ? " · " + adm(t) + "/" + t.qty + " in" : ""}</small></span></div>`).join("")}</div>`
-        : `<p class="hint">No bookings yet.</p>`}`);
+        : `<p class="hint">No bookings yet.</p>`}
+       <button class="btn s b" id="dlList" style="margin-top:12px">Download ticket list (CSV)</button>
+       <button class="btn s b" id="dlEv" style="margin-top:8px">Save event backup (JSON)</button>`);
+    m.querySelector("#dlList").onclick = () => downloadEventList(e, l || []);
+    m.querySelector("#dlEv").onclick = () => downloadEventBackup(e, l || []);
   } catch (e) { console.error("sales error:", e); toast("Could not load attendees"); }
 }
 
@@ -1908,7 +2027,7 @@ async function del(id) {
   if (!e) return;
   if (!await ask("Delete this event?", `<b>${esc(e.title)}</b> will be removed permanently.`, "Delete event", "d")) return;
   try {
-    const { error } = await sb.from("events").delete().eq("id", id);
+    const { error } = await db.from("events").delete().eq("id", id);
     if (error) return toast(error.message);
     toast("Event deleted");
     await loadAll();
@@ -2067,7 +2186,7 @@ function openEditor(id) {
           presenters: PR.filter(x => String(x.name).trim()).map(x => ({ name: x.name.trim(), role: (x.role || "").trim(), img: x.img || "" })),
           status: "live"
         };
-        const { error } = await (e ? sb.from("events").update(ev).eq("id", ev.id) : sb.from("events").insert(ev));
+        const { error } = await (e ? db.from("events").update(ev).eq("id", ev.id) : db.from("events").insert(ev));
         if (error) { btn.disabled = false; return toast(error.message) }
         m.close();
         toast(e ? "Event updated" : "Event published");
@@ -2091,7 +2210,7 @@ const PAY_LABEL = { requested: "Requested", verifying: "Verifying", approved: "A
 async function loadPayouts() {
   if (!me) { PAYOUTS = []; return; }
   try {
-    const { data } = await sb.from("payouts").select("*")
+    const { data } = await db.from("payouts").select("*")
       .eq("organiser_id", me.id).order("created_at", { ascending: false });
     PAYOUTS = data || [];
   } catch (e) {
@@ -2151,7 +2270,7 @@ function openPayoutRequest() {
       btn.innerHTML = '<span class="spin"></span>';
 
       try {
-        const { error } = await sb.from("payouts").insert({
+        const { error } = await db.from("payouts").insert({
           id: uid("po_"),
           organiser_id: me.id,
           organiser_name: me.name || "",
@@ -2222,10 +2341,10 @@ const PLANS = {
   pro: {
     id: "pro",
     name: "Pro",
-    tagline: "Monthly fee · 0% commission per sale",
+    tagline: "Monthly fee · 1.5% commission per sale",
     price: 499,
     feePct: 0,
-    perks: ["Keep every kwacha — 0% commission", "Unlimited events", "Priority support"]
+    perks: ["Lowest rates — 1.5% commission", "Unlimited events", "Priority support"]
   }
 };
 const PLAN_ORDER = ["commission", "starter", "pro"];
@@ -2254,12 +2373,15 @@ function effFee() {
   return planFeePct(activePlan());
 }
 
+const myPendingRequest = () => (me ? PLAN_REQUESTS.find(r => r.organiser_id === me.id && r.status === "pending") : null);
+
 function planCardHTML() {
   const p = activePlan();
   const pct = planFeePct(p);
   const lapsed = !!(me && me.plan && me.plan !== "commission" && (planExpired() || planMissingExpiry()));
   const exp = me && me.plan_expires_at ? new Date(me.plan_expires_at) : null;
   const days = exp && !lapsed ? Math.ceil((exp.getTime() - Date.now()) / 86400000) : 0;
+  const pending = myPendingRequest();
 
   const note = lapsed
     ? `Your ${esc(planName(me.plan))} plan has ended — you're on commission until you renew.`
@@ -2267,39 +2389,37 @@ function planCardHTML() {
       ? `Renews ${fdate(exp.toISOString().slice(0, 10))}${days <= 5 ? ` · ${days} day${days === 1 ? "" : "s"} left` : ""}`
       : esc(p.tagline);
 
+  const action = pending
+    ? `<p class="plan-note"><b>Request pending:</b> ${esc(planName(pending.to_plan))}. Waiting for an admin to approve it.</p>
+       <button class="btn sm" onclick="cancelPlanRequest()">Cancel request</button>`
+    : `<button class="btn sm" onclick="openPlans()">${lapsed ? "Renew plan" : "Change plan"}</button>`;
+
   return `<div class="plan-card">
     <div class="plan-top">
       <div><small>Subscription</small><b>${esc(p.name)}</b></div>
       <span class="plan-pill">${pct === 0 ? "0% commission" : pct + "% per sale"}</span>
     </div>
     <p class="plan-note">${note}</p>
-    <button class="btn sm" onclick="openPlans()">${lapsed ? "Renew plan" : "Change plan"}</button>
+    ${action}
   </div>`;
 }
 
 function openPlans() {
   needAuth(() => {
     if (!isOrg()) return toast("Organiser accounts only");
+    if (myPendingRequest()) return toast("You already have a plan request waiting for approval");
 
     const m = sheet("");
     const g = s => m.querySelector(s);
     let pick = activePlan().id;
-    let nm = me.name || "";
-    let ph = me.phone || "";
 
     const draw = () => {
       const cur = activePlan().id;
       const p = PLANS[pick];
       const same = pick === cur;
 
-      const hintTxt = p.price
-        ? "You'll approve the payment on your phone. The plan runs for 30 days."
-        : (!same && cur !== "commission")
-          ? "Switching to commission ends your paid period immediately. The remaining days are not refunded."
-          : "You only pay commission on the tickets you actually sell.";
-
       g(".sh").innerHTML = `<div class="grab"></div>` +
-        sh("Choose your plan", "Monthly plans are billed in advance. You can move back to commission at any time.") +
+        sh("Choose your plan", "Pick the plan you want, then send a request. An admin will review it.") +
         PLAN_ORDER.map(id => {
           const x = PLANS[id];
           return `<button class="tt ${pick === id ? "on" : ""}" data-pl="${id}">
@@ -2310,58 +2430,38 @@ function openPlans() {
           </button>`;
         }).join("") +
         `<ul class="plan-perks">${(p.perks || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>` +
-        (p.price ? `
-          <div class="fld"><label>Full name</label><input class="in" id="pln" value="${esc(nm)}" autocomplete="name"></div>
-          <div class="fld"><label>Mobile money number</label><input class="in" id="plp" type="tel" value="${esc(ph)}" placeholder="0977 123 456" autocomplete="tel"></div>` : "") +
-        `<button class="btn b" id="plgo" ${same ? "disabled" : ""}>${same ? "Current plan" : p.price ? "Pay " + money(p.price) : "Switch to commission"}</button>
-         <p class="hint c">${hintTxt}</p>`;
+        `<button class="btn b" id="plgo" ${same ? "disabled" : ""}>${same ? "Current plan" : "Request " + esc(p.name)}</button>
+         <p class="hint c">${same ? "This is your current plan." : "Nothing is charged now. Your plan changes once an admin approves the request."}</p>`;
 
       m.querySelectorAll("[data-pl]").forEach(b => b.onclick = () => { pick = b.dataset.pl; draw() });
-      const bn = g("#pln"), bp = g("#plp");
-      if (bn) bn.oninput = e => { nm = e.target.value };
-      if (bp) bp.oninput = e => { ph = e.target.value };
       const goBtn = g("#plgo");
       if (goBtn) goBtn.onclick = submit;
     };
 
     async function submit() {
-      const p = PLANS[pick];
-      if (!p) return;
-
-      if (p.price > 0) {
-        if (nm.trim().length < 2) return toast("Enter the account name");
-        if (!isValidPhone(ph)) return toast("Enter a valid mobile money number");
-      }
-
       const btn = g("#plgo");
       btn.disabled = true;
-      btn.innerHTML = '<span class="spin"></span>';
-
       try {
-        if (p.price > 0) {
-          const ref = await startPayment({ amount: p.price, name: nm.trim(), phone: ph });
-          btn.innerHTML = '<span class="spin"></span> Approve on your phone…';
-          const paid = await pollPayment(ref, st => {
-            if (st === "pending") btn.innerHTML = '<span class="spin"></span> Waiting for confirmation…';
-          });
-          if (paid.status !== "paid") {
-            draw();
-            return toast(paid.status === "failed"
-              ? "Payment was not completed. You have not been charged."
-              : "Payment is still pending. Approve it on your phone, then try again.");
-          }
-          btn.innerHTML = '<span class="spin"></span> Activating…';
-        }
-
-        await savePlan(p.id, p.price);
+        const { error } = await db.from("plan_requests").insert({
+          id: uid("req_"),
+          organiser_id: me.id,
+          organiser_name: me.name || "",
+          organiser_email: me.email || "",
+          from_plan: activePlan().id,
+          to_plan: pick,
+          status: "pending",
+          created_at: new Date().toISOString()
+        });
+        if (error) throw new Error(error.message);
         m.close();
-        toast(p.price ? p.name + " plan activated" : "You're back on commission");
+        toast("Request sent. Waiting for admin approval");
+        await loadAll();
         if (tab === "org") rOrg();
         else if (tab === "me") rMe();
       } catch (err) {
-        console.error("Plan change error:", err);
-        draw();
-        toast(err && err.message ? err.message : "Could not change plan");
+        console.error("Plan request error:", err);
+        btn.disabled = false;
+        toast(err && err.message ? err.message : "Could not send request");
       }
     }
 
@@ -2369,37 +2469,16 @@ function openPlans() {
   });
 }
 
-async function savePlan(planId, amountPaid) {
-  const start = new Date();
-  const end = new Date(start.getTime() + PLAN_DAYS * 86400000);
-  const patch = {
-    plan: planId,
-    plan_started_at: start.toISOString(),
-    plan_expires_at: planId === "commission" ? null : end.toISOString(),
-    plan_amount: amountPaid || 0
-  };
-
-  const { error } = await sb.from("profiles").update(patch).eq("id", me.id);
-  if (error) {
-    const msg = /column|schema|does not exist/i.test(error.message || "")
-      ? "Subscriptions aren't set up on this project yet (add the profiles.plan columns)."
-      : error.message;
-    throw new Error(msg);
-  }
-
-  Object.assign(me, patch);
-
-  try {
-    await sb.from("subscriptions").insert({
-      id: uid("sub_"),
-      organiser_id: me.id,
-      plan: planId,
-      amount: amountPaid || 0,
-      status: "active",
-      started_at: patch.plan_started_at,
-      expires_at: patch.plan_expires_at
-    });
-  } catch (e) { console.warn("Subscription log failed:", e); }
+async function cancelPlanRequest() {
+  const req = myPendingRequest();
+  if (!req) return;
+  if (!confirm("Cancel your plan change request?")) return;
+  const { error } = await db.from("plan_requests").update({ status: "cancelled" }).eq("id", req.id);
+  if (error) return toast(error.message);
+  toast("Request cancelled");
+  await loadAll();
+  if (tab === "org") rOrg();
+  else if (tab === "me") rMe();
 }
 /* ---------- END SUBSCRIPTION PLANS ---------- */
 
@@ -2436,7 +2515,7 @@ function rMe() {
   const b = $("#so");
   if (b) b.onclick = async () => {
     if (await ask("Sign out?", "You can sign back in any time.", "Sign out", "d")) {
-      try { await sb.auth.signOut() } catch { }
+      try { await db.auth.signOut() } catch { }
       me = null;
       MINE = [];
       TIX = [];
@@ -2456,7 +2535,7 @@ async function loadAdminFeatured() {
   box.innerHTML = `<h2 class="h2">Feature requests</h2><div class="sk"><div class="sk-line"></div></div>`;
   let data = [];
   try {
-    const { data: rows } = await sb
+    const { data: rows } = await db
       .from("events")
       .select("*")
       .eq("featured_status", "pending")
@@ -2496,7 +2575,7 @@ async function reviewFeatured(id, status) {
     featured_reviewed_at: new Date().toISOString(),
     featured_reviewed_by: me ? me.id : null
   };
-  const { error } = await sb.from("events").update(updates).eq("id", id);
+  const { error } = await db.from("events").update(updates).eq("id", id);
   if (error) return toast(error.message);
   toast(status === "approved" ? "Event approved for Explore" : "Request declined");
   await loadAll();
@@ -2675,7 +2754,7 @@ const PAGES = {
       <ul>
         <li><b>The organiser</b> of the event you booked — your name, phone number, ticket type and check-in status.</li>
         <li><b>Payment partners</b> (Lipila and the mobile-money networks) — to take payment and to send refunds.</li>
-        <li><b>Our hosting and database provider</b> (Supabase) — which stores the data on our behalf.</li>
+        <li><b>Data storage</b> — your account, tickets and event details are currently kept in your browser's local storage on this device.</li>
         <li><b>Authorities</b> — where we are legally required to disclose information.</li>
       </ul>
       <p>We do not sell your personal information, and we do not share it for third-party advertising.</p>
@@ -2822,7 +2901,7 @@ const PAGES = {
       <p>You pick a plan from the Organise tab. <b>Pay as you sell</b> costs nothing upfront and takes commission on each ticket sold. <b>Starter</b> and <b>Pro</b> charge a fixed monthly fee and charge a lower commission (Pro charges none at all). Monthly plans run for 30 days and are not auto-renewed.</p>
 
       <h3>Can I change my plan?</h3>
-      <p>Yes — tap <b>Change plan</b> on the subscription card in the Organise tab. Upgrades take effect as soon as the payment is confirmed. Moving back to commission ends the paid period immediately.</p>
+      <p>Yes — tap <b>Change plan</b> on the subscription card in the Organise tab. Send a request from the subscription card in the Organise tab; the change takes effect once an admin approves it. Moving back to commission ends the paid period immediately.</p>
 
       <h3>How do I get my event featured on Explore?</h3>
       <p>When creating or editing an event, tick <b>Request to be featured</b>. Our team reviews requests and approved events appear in the carousel at the top of Explore.</p>
@@ -2926,43 +3005,37 @@ const yrEl = document.getElementById("yr");
 if (yrEl) yrEl.textContent = new Date().getFullYear();
 $("#list").innerHTML = `<div class="sk">${skeleton(5)}</div>`;
 (async () => {
-  // Detect recovery link BEFORE supabase-js processes the URL hash
-  const isRecovery = (() => {
-    try {
-      const hp = new URLSearchParams((location.hash || "").slice(1));
-      return hp.get("type") === "recovery";
-    } catch { return false; }
-  })();
-
   try {
     await loadMe();
     await loadAll();
     go("home");
     openFromUrl();
-
-    if (isRecovery) {
-      try { history.replaceState({}, "", location.pathname + location.search); } catch { }
-      openAuth(null, "reset");
-    }
-
-    sb.auth.onAuthStateChange(async (event) => {
-      if (!["SIGNED_IN", "SIGNED_OUT", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) return;
-      try {
-        await loadMe();
-        await loadAll();
-        drawTabs();
-        if (tab === "home") rHome();
-        else if (tab === "tix") rTix();
-        else if (tab === "org") rOrg();
-        else if (tab === "chk") rChk();
-        else if (tab === "me") rMe();
-      } catch (e) { console.error("Auth state change error:", e); }
-    });
   } catch (e) {
     console.error("Init error:", e);
     toast("Failed to load app");
   }
 })();
+
+/* ---------- LIVE UPDATES (Supabase Realtime) ---------- */
+let syncTimer = null;
+const scheduleSync = () => {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(async () => {
+    try {
+      await loadMe();
+      await loadAll();
+      drawTabs();
+      if (tab === "home") rHome();
+      else if (tab === "tix") rTix();
+      else if (tab === "org") rOrg();
+      else if (tab === "chk") rChk();
+      else if (tab === "me") rMe();
+    } catch (err) { console.error("Sync error:", err); }
+  }, 400);
+};
+db.channel("tamba-live")
+  .on("postgres_changes", { event: "*", schema: "public" }, scheduleSync)
+  .subscribe();
 </script>
 </body>
 </html>
